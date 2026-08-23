@@ -323,6 +323,7 @@ export default {
   // --- media ---
   'tap to pause': 'اضغط للوقف',
   'tap to play': 'اضغط للتشغيل',
+  'Animation unavailable': 'الصورة مش متاحة دلوقتي',
   // --- data terms: body parts ---
   'back': 'الظهر', 'cardio': 'كارديو', 'chest': 'الصدر', 'lower arms': 'الساعد',
   'lower legs': 'الساق', 'neck': 'الرقبة', 'shoulders': 'الأكتاف',

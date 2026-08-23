@@ -27,12 +27,28 @@ export function registerCustom(list) {
 export const allExercises = st => [...(st.customEx || []), ...EXDB]
 
 // Media normally sits next to the app (img/ and gif/, mounted into the web container).
-// A build can point them somewhere else — the demo build pulls them off a CDN instead of
-// shipping ~140 MB of images into the deployment.
-const IMG_BASE = import.meta.env.VITE_IMG_BASE || 'img/'
-const GIF_BASE = import.meta.env.VITE_GIF_BASE || 'gif/'
-export const imgSrc = ex => IMG_BASE + ex.img
-export const gifSrc = ex => GIF_BASE + ex.gif
+// Mobile / demo builds point at a CDN. jsDelivr is flaky in some regions, so every
+// lookup has GitHub raw + jsDelivr fallbacks — Media.jsx walks the list on error.
+const MEDIA_PIN = '7455efae41b330c265e7cd4b78dfa848e7ce5ebd'
+const GH = `https://raw.githubusercontent.com/hasaneyldrm/exercises-dataset/${MEDIA_PIN}/`
+const JD = `https://cdn.jsdelivr.net/gh/hasaneyldrm/exercises-dataset@${MEDIA_PIN}/`
+
+function bases(env, local, remoteDirs) {
+  const out = []
+  const add = b => { if (b && !out.includes(b)) out.push(b.endsWith('/') ? b : b + '/') }
+  add(env)
+  add(local)
+  remoteDirs.forEach(add)
+  return out
+}
+
+const IMG_BASES = bases(import.meta.env.VITE_IMG_BASE, 'img/', [GH + 'images/', JD + 'images/'])
+const GIF_BASES = bases(import.meta.env.VITE_GIF_BASE, 'gif/', [GH + 'videos/', JD + 'videos/'])
+
+export const imgCandidates = ex => (ex && ex.img) ? IMG_BASES.map(b => b + ex.img) : []
+export const gifCandidates = ex => (ex && ex.gif) ? GIF_BASES.map(b => b + ex.gif) : []
+export const imgSrc = ex => imgCandidates(ex)[0] || ''
+export const gifSrc = ex => gifCandidates(ex)[0] || ''
 
 // Cardio exercises log time + speed instead of weight × reps.
 export const isCardio = idOrEx => (typeof idOrEx === 'string' ? EXIDX[idOrEx] : idOrEx)?.bp === 'cardio'

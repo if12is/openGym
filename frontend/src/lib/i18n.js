@@ -6,6 +6,7 @@
 // language, from the upstream dataset) — also lazy-loaded on language switch.
 import { useSyncExternalStore } from 'react'
 import ar from '../locales/ar.js'
+import { translateExName } from './exName.js'
 
 // UI languages. Arabic is first: it is the product default and the only RTL pack.
 export const LANGS = {
@@ -15,7 +16,7 @@ export const LANGS = {
   ko: '한국어', hi: 'हिन्दी'
 }
 export const RTL_LANGS = ['ar']
-export const INSTR_LANGS = ['en', 'es', 'fr', 'it', 'tr', 'ru', 'zh', 'hi', 'pl', 'ko']
+export const INSTR_LANGS = ['ar', 'en', 'es', 'fr', 'it', 'tr', 'ru', 'zh', 'hi', 'pl', 'ko']
 const DATE_LOCALES = {
   ar: 'ar-EG',
   en: 'en-GB', de: 'de-DE', es: 'es-ES', fr: 'fr-FR', it: 'it-IT', pt: 'pt-PT',
@@ -29,6 +30,7 @@ const TEST = import.meta.env.MODE === 'test'
 let lang = TEST ? 'en' : 'ar'
 let dict = TEST ? {} : ar
 let instr = null            // { exId: [steps] } for the current language, null = English
+let instrPending = !TEST    // Arabic default: wait for the pack before falling back to English
 let version = 0
 const subs = new Set()
 const notify = () => { version++; subs.forEach(f => f()) }
@@ -44,18 +46,49 @@ export function t(s, ...args) {
   return v
 }
 // Instructions for an exercise in the current language (English steps as fallback).
-export const instrFor = ex => (instr && instr[ex.id]) || ex.st || []
+export const instrFor = ex => {
+  if (instr && instr[ex.id]) return instr[ex.id]
+  if (instrPending) return []
+  return ex.st || []
+}
+
+export const instrIsEnglish = ex => {
+  const steps = instrFor(ex)
+  return steps.length > 0 && !(instr && instr[ex.id])
+}
+
+export function exName(ex) {
+  const n = (ex && ex.n) || ''
+  return lang === 'ar' && n ? translateExName(n) : n
+}
+
+export function matchesEx(ex, q) {
+  const ql = (q || '').toLowerCase().trim()
+  if (!ql) return true
+  if ((ex.n || '').toLowerCase().includes(ql)) return true
+  if ((ex.tg || '').toLowerCase().includes(ql)) return true
+  if ((ex.eq || '').toLowerCase().includes(ql)) return true
+  if ((ex.desc || '').toLowerCase().includes(ql)) return true
+  if (lang === 'ar') {
+    const arName = translateExName(ex.n)
+    if (arName.includes(q.trim())) return true
+  }
+  return false
+}
 
 export async function setLang(l) {
   if (!LANGS[l]) l = 'ar'
   if (l === lang && version > 0) return
   lang = l
+  const wantInstr = INSTR_LANGS.includes(l) && l !== 'en'
+  instrPending = wantInstr
   try {
     if (l === 'ar') dict = ar
     else if (l === 'en') dict = {}
     else dict = (await localePacks['../locales/' + l + '.js']()).default
-    instr = !INSTR_LANGS.includes(l) ? null : (await instrPacks['../instr/' + l + '.js']()).default
+    instr = !wantInstr ? null : (await instrPacks['../instr/' + l + '.js']()).default
   } catch (e) { dict = l === 'ar' ? ar : {}; instr = null }
+  instrPending = false
   notify()
 }
 
