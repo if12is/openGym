@@ -66,9 +66,8 @@ jobs:
       - name: Surface Gradle error
         if: failure()
         run: |
-          echo '----- gradle-build.log -----'
-          tail -n 120 frontend/android/gradle-build.log || true
-          echo "::error::$(tail -n 25 frontend/android/gradle-build.log | tr '\n' ' | ')"
+          tail -n 80 frontend/android/gradle-build.log || true
+          echo "::error::$(tail -n 20 frontend/android/gradle-build.log | tr '\n' ' | ')"
 
       - name: Name the APK
         run: |
