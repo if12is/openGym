@@ -51,11 +51,24 @@ jobs:
 
       - name: Point Gradle at the Android SDK
         working-directory: frontend/android
-        run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
+        run: |
+          echo "ANDROID_HOME=${ANDROID_HOME}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}"
+          echo "sdk.dir=${ANDROID_HOME:-$ANDROID_SDK_ROOT}" > local.properties
+          cat local.properties
 
       - name: Assemble debug APK
         working-directory: frontend/android
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: |
+          set -o pipefail
+          gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee gradle-build.log
+
+      - name: Surface Gradle error
+        if: failure()
+        run: |
+          echo '----- gradle-build.log -----'
+          tail -n 120 frontend/android/gradle-build.log || true
+          echo "::error::$(tail -n 25 frontend/android/gradle-build.log | tr '\n' ' | ')"
 
       - name: Name the APK
         run: |
