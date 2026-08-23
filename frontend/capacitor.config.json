@@ -1,8 +1,8 @@
 {
   "appId": "ch.duartesantos.opengym",
-  "appName": "openGym",
+  "appName": "چيمك",
   "webDir": "dist",
-  "backgroundColor": "#0c0e12",
+  "backgroundColor": "#140e0a",
   "android": {
     "allowMixedContent": false
   }

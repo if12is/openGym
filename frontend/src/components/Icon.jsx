@@ -128,13 +128,15 @@ export const ICON_NAMES = Object.keys(P)
  * <Icon name="flame" />           — inherits font-size via `1em` sizing
  * <Icon name="flame" size={28} /> — explicit pixel size
  */
+const DIR_FLIP = new Set(['chevronLeft', 'chevronRight'])
+
 export default function Icon({ name, size, className = '', style, ...rest }) {
   const d = P[name]
   if (!d) return null
   const s = size ? { width: size, height: size } : null
   return (
     <svg
-      className={'icn ' + className}
+      className={'icn ' + (DIR_FLIP.has(name) ? 'dir-flip ' : '') + className}
       viewBox="0 0 24 24"
       aria-hidden="true"
       focusable="false"

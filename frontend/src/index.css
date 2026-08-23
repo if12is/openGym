@@ -18,33 +18,33 @@
 
 /* ---------------------------------------------------------------- tokens -- */
 :root {
-  /* surfaces — dark is the default */
-  --bg:        #000000;
-  --bg-el:     #0e0e10;   /* elevated backdrop (sheets, bars) */
-  --surface:   #1c1c1e;   /* card / grouped-list fill */
-  --surface-2: #2c2c2e;   /* pressed + nested fill */
-  --surface-3: #3a3a3c;   /* controls (segmented track, switch off) */
+  /* surfaces — desert night (Egyptian identity) */
+  --bg:        #140e0a;
+  --bg-el:     #1c1510;   /* elevated backdrop (sheets, bars) */
+  --surface:   #241c16;   /* card / grouped-list fill */
+  --surface-2: #322820;   /* pressed + nested fill */
+  --surface-3: #3d3228;   /* controls (segmented track, switch off) */
 
-  /* text */
-  --label:     #ffffff;
-  --label-2:   rgba(235,235,245,.60);
-  --label-3:   rgba(235,235,245,.32);
-  --label-4:   rgba(235,235,245,.18);
+  /* text — papyrus ivory */
+  --label:     #f6ead4;
+  --label-2:   rgba(246,234,212,.62);
+  --label-3:   rgba(246,234,212,.36);
+  --label-4:   rgba(246,234,212,.18);
 
   /* lines */
-  --sep:       rgba(84,84,88,.60);
-  --sep-op:    rgba(84,84,88,.34);   /* for edges sitting over blur */
+  --sep:       rgba(196,160,80,.28);
+  --sep-op:    rgba(196,160,80,.16);   /* for edges sitting over blur */
   --hair:      .5px;
 
-  /* system palette (iOS dark values) */
-  --blue:#0a84ff; --green:#30d158; --red:#ff453a; --orange:#ff9f0a;
-  --yellow:#ffd60a; --teal:#40c8e0; --indigo:#5e5ce6; --pink:#ff375f;
-  --purple:#bf5af2; --mint:#63e6e2; --brown:#ac8e68; --grey:#8e8e93;
+  /* Egyptian palette */
+  --blue:#2a7d8c; --green:#3d9b6a; --red:#c23b2e; --orange:#e07a3d;
+  --yellow:#d4a017; --teal:#2a9d8f; --indigo:#5c4a8a; --pink:#c45c6a;
+  --purple:#8b4d9a; --mint:#4ecdc4; --brown:#ac8e68; --grey:#9a8b78;
 
-  /* accent (per-account, synced) */
-  --acc:  var(--green);
-  --acc-2:#248a3d;
-  --on-acc:#000000;
+  /* accent (per-account, synced) — Pharaoh gold is the default */
+  --acc:  var(--yellow);
+  --acc-2:#a67c0d;
+  --on-acc:#1a1208;
   --acc-soft: color-mix(in srgb, var(--acc) 16%, transparent);
   --acc-line: color-mix(in srgb, var(--acc) 38%, transparent);
 
@@ -62,48 +62,50 @@
 }
 
 :root[data-theme="light"] {
-  --bg:        #f2f2f7;
-  --bg-el:     #f7f7fa;
-  --surface:   #ffffff;
-  --surface-2: #ececef;
-  --surface-3: #e3e3e8;
+  --bg:        #f3ead6;
+  --bg-el:     #f7f0de;
+  --surface:   #fff8eb;
+  --surface-2: #efe2c8;
+  --surface-3: #e6d4b4;
 
-  --label:     #000000;
-  --label-2:   rgba(60,60,67,.60);
-  --label-3:   rgba(60,60,67,.30);
-  --label-4:   rgba(60,60,67,.16);
+  --label:     #2a1f14;
+  --label-2:   rgba(42,31,20,.62);
+  --label-3:   rgba(42,31,20,.36);
+  --label-4:   rgba(42,31,20,.16);
 
-  --sep:       rgba(60,60,67,.29);
-  --sep-op:    rgba(60,60,67,.20);
+  --sep:       rgba(140,100,40,.28);
+  --sep-op:    rgba(140,100,40,.18);
 
-  --blue:#007aff; --green:#34c759; --red:#ff3b30; --orange:#ff9500;
-  --yellow:#ffcc00; --teal:#30b0c7; --indigo:#5856d6; --pink:#ff2d55;
-  --purple:#af52de; --mint:#00c7be; --brown:#a2845e; --grey:#8e8e93;
-  --acc-2:#248a3d;
-  --on-acc:#ffffff;
+  --blue:#1f6b78; --green:#2e7d52; --red:#b43328; --orange:#c45c26;
+  --yellow:#c49212; --teal:#1f7f74; --indigo:#4a3b72; --pink:#a84856;
+  --purple:#734080; --mint:#2aa8a0; --brown:#8d7048; --grey:#7a6c5c;
+  --acc-2:#8a6808;
+  --on-acc:#1a1208;
 }
 
 /* accents — Apple's system colours, so a recolour never looks off-system */
-:root[data-accent="lime"]  { --acc:var(--green);  --acc-2:#248a3d; --on-acc:#000 }
-:root[data-accent="sky"]   { --acc:var(--blue);   --acc-2:#0060df; --on-acc:#fff }
-:root[data-accent="orange"]{ --acc:var(--orange); --acc-2:#c76b00; --on-acc:#000 }
-:root[data-accent="violet"]{ --acc:var(--purple); --acc-2:#8944ab; --on-acc:#fff }
-:root[data-accent="pink"]  { --acc:var(--pink);   --acc-2:#d70036; --on-acc:#fff }
-:root[data-accent="red"]   { --acc:var(--red);    --acc-2:#d70015; --on-acc:#fff }
-:root[data-accent="teal"]  { --acc:var(--teal);   --acc-2:#0071a4; --on-acc:#000 }
-:root[data-accent="gold"]  { --acc:var(--yellow); --acc-2:#b25000; --on-acc:#000 }
+:root[data-accent="gold"]  { --acc:var(--yellow); --acc-2:#a67c0d; --on-acc:#1a1208 }
+:root[data-accent="teal"]  { --acc:var(--teal);   --acc-2:#1a6f65; --on-acc:#04120f }
+:root[data-accent="orange"]{ --acc:var(--orange); --acc-2:#b85c28; --on-acc:#1a1208 }
+:root[data-accent="lime"]  { --acc:var(--green);  --acc-2:#2a6d4a; --on-acc:#04120a }
+:root[data-accent="sky"]   { --acc:var(--blue);   --acc-2:#1a5a66; --on-acc:#fff8eb }
+:root[data-accent="violet"]{ --acc:var(--purple); --acc-2:#6a3876; --on-acc:#fff8eb }
+:root[data-accent="pink"]  { --acc:var(--pink);   --acc-2:#9a3848; --on-acc:#fff8eb }
+:root[data-accent="red"]   { --acc:var(--red);    --acc-2:#8f2a20; --on-acc:#fff8eb }
 /* Label colour on a filled accent button is picked per accent by measured contrast,
    not by taste. Button text is 17px/600, so the AA bar is 3:1 (large text). White on
    the light-theme green is 2.22:1 and on teal 2.57:1 — both fail, and green is the
    DEFAULT accent, so every primary button in light mode was failing. Black scores
    9.46 / 8.16 there. Blue, purple, pink and red keep white (3.5–4.1:1), which both
    passes and matches the platform convention. */
+:root[data-theme="light"][data-accent="gold"],
 :root[data-theme="light"][data-accent="lime"],
-:root[data-theme="light"][data-accent="teal"]  { --on-acc:#000 }
+:root[data-theme="light"][data-accent="teal"],
+:root[data-theme="light"][data-accent="orange"] { --on-acc:#1a1208 }
 :root[data-theme="light"][data-accent="sky"],
 :root[data-theme="light"][data-accent="violet"],
 :root[data-theme="light"][data-accent="pink"],
-:root[data-theme="light"][data-accent="red"]   { --on-acc:#fff }
+:root[data-theme="light"][data-accent="red"]    { --on-acc:#fff8eb }
 
 /* ---------------------------------------------------------------- reset -- */
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -111,10 +113,20 @@ html{
   font-size:16px;background:var(--bg);overscroll-behavior:none;overflow-x:clip;
   -webkit-text-size-adjust:100%;
 }
+html{
+  background:
+    radial-gradient(900px 480px at 100% -8%, color-mix(in srgb, var(--acc) 16%, transparent), transparent 58%),
+    var(--bg);
+}
+html[dir="rtl"]{
+  background:
+    radial-gradient(900px 480px at 0% -8%, color-mix(in srgb, var(--acc) 16%, transparent), transparent 58%),
+    var(--bg);
+}
 body{
-  background:var(--bg);color:var(--label);
-  font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','SF Pro Display','Segoe UI',Roboto,system-ui,sans-serif;
-  font-size:17px;line-height:1.29;letter-spacing:-.01em;
+  background:transparent;color:var(--label);
+  font-family:'Cairo','IBM Plex Sans Arabic','Noto Naskh Arabic','Segoe UI',Tahoma,sans-serif;
+  font-size:17px;line-height:1.45;letter-spacing:0;
   min-height:100vh;overscroll-behavior-y:none;overflow-x:clip;
   -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
   touch-action:manipulation;
@@ -139,11 +151,11 @@ button,.chip,.tile,.item,.wday,.cal-d,.swatch,.hm-c,.lrow,.seg button,.stp butto
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
 
 /* ------------------------------------------------------------ type scale -- */
-.t-large  {font-size:34px;line-height:1.06;font-weight:700;letter-spacing:-.028em}
-.t-title  {font-size:28px;line-height:1.12;font-weight:700;letter-spacing:-.024em}
-.t-title2 {font-size:22px;line-height:1.18;font-weight:700;letter-spacing:-.021em}
-.t-head   {font-size:17px;line-height:1.29;font-weight:600;letter-spacing:-.012em}
-.t-body   {font-size:17px;line-height:1.29;font-weight:400;letter-spacing:-.012em}
+.t-large  {font-size:34px;line-height:1.15;font-weight:800;letter-spacing:0}
+.t-title  {font-size:28px;line-height:1.2;font-weight:800;letter-spacing:0}
+.t-title2 {font-size:22px;line-height:1.25;font-weight:700;letter-spacing:0}
+.t-head   {font-size:17px;line-height:1.4;font-weight:600;letter-spacing:0}
+.t-body   {font-size:17px;line-height:1.4;font-weight:400;letter-spacing:0}
 .t-callout{font-size:16px;line-height:1.31;font-weight:400;letter-spacing:-.009em}
 .t-sub    {font-size:15px;line-height:1.33;font-weight:400;letter-spacing:-.006em}
 .t-foot   {font-size:13px;line-height:1.38;font-weight:400;letter-spacing:-.001em}
@@ -173,7 +185,7 @@ body.resting #app{padding-bottom:calc(250px + var(--sab))}
 
 /* large title, the way a nav bar does it */
 .hdr{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin:8px 0 18px}
-.hdr h1{font-size:34px;line-height:1.06;font-weight:700;letter-spacing:-.028em}
+.hdr h1{font-size:34px;line-height:1.15;font-weight:800;letter-spacing:0}
 .hdr .sub{color:var(--label-2);font-size:15px;letter-spacing:-.006em;margin-top:4px}
 
 .iconbtn{
@@ -202,6 +214,7 @@ h4.sec{
 .card{
   background:var(--surface);border-radius:var(--r-card);
   padding:16px;margin-bottom:12px;
+  box-shadow:inset 0 1px 0 color-mix(in srgb,var(--acc) 14%,transparent);
 }
 .card .big{font-size:30px;font-weight:600;letter-spacing:-.026em;line-height:1.1}
 
@@ -215,15 +228,15 @@ h4.sec{
 .sect-f{font-size:13px;color:var(--label-2);padding:7px 4px 0;line-height:1.38}
 
 .lrow{
-  display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+  display:flex;align-items:center;gap:12px;width:100%;text-align:start;
   padding:11px 14px;min-height:46px;position:relative;color:var(--label);
   background:none;
 }
 /* hairline starts after the icon rail so the list reads as one object */
 .lrow+.lrow::before{
-  content:'';position:absolute;left:14px;right:0;top:0;height:var(--hair);background:var(--sep);
+  content:'';position:absolute;inset-inline-start:14px;inset-inline-end:0;top:0;height:var(--hair);background:var(--sep);
 }
-.lrow:has(.lrow-i)+.lrow:has(.lrow-i)::before{left:55px}
+.lrow:has(.lrow-i)+.lrow:has(.lrow-i)::before{inset-inline-start:55px}
 .lrow.tap:active{background:var(--surface-2)}
 .lrow-i{
   width:29px;height:29px;border-radius:7px;flex:none;font-size:18px;
@@ -237,7 +250,7 @@ h4.sec{
    through the title next to it, since the title's column is already free to shrink to nothing.
    Letting the value shrink and ellipsise instead keeps the two out of each other's way. */
 .lrow-v{color:var(--label-2);font-size:17px;letter-spacing:-.012em;flex:0 1 auto;min-width:0;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:end}
 .lrow-c{color:var(--label);font-size:15px;flex:none;--icon-stroke:2.4}
 .lrow-k{color:var(--acc);font-size:17px;flex:none;--icon-stroke:2.4}
 .lrow.danger,.lrow.danger .lrow-t{color:var(--red)}
@@ -341,7 +354,7 @@ h4.sec{
 .item{
   display:flex;align-items:center;gap:12px;background:var(--surface);
   border-radius:var(--r-card);padding:10px 12px;min-height:60px;
-  transition:background var(--fast);text-align:left;width:100%;
+  transition:background var(--fast);text-align:start;width:100%;
 }
 .item:active{background:var(--surface-2)}
 .thumb{width:50px;height:50px;border-radius:9px;object-fit:cover;background:#fff;flex:none}
@@ -393,22 +406,22 @@ h4.sec{
 /* --- search field --- */
 .searchf{position:relative;display:flex;align-items:center}
 .searchf .lead{
-  position:absolute;left:11px;font-size:16px;color:var(--label-3);
+  position:absolute;inset-inline-start:11px;font-size:16px;color:var(--label-3);
   pointer-events:none;--icon-stroke:2.1;z-index:1;
 }
-.searchf .field{padding-left:35px;padding-right:36px;background:var(--surface-2);border-radius:10px}
+.searchf .field{padding-inline-start:35px;padding-inline-end:36px;background:var(--surface-2);border-radius:10px}
 :root[data-theme="light"] .searchf .field{background:rgba(118,118,128,.12)}
 .searchf .clear{
-  position:absolute;right:8px;width:22px;height:22px;border-radius:50%;
+  position:absolute;inset-inline-end:8px;width:22px;height:22px;border-radius:50%;
   background:var(--label-3);color:var(--bg);display:flex;align-items:center;
   justify-content:center;font-size:11px;--icon-stroke:3;
 }
 /* legacy .search wrapper */
 .search{position:relative}
-.search .input{padding-left:35px;background:var(--surface-2);border-radius:10px}
+.search .input{padding-inline-start:35px;background:var(--surface-2);border-radius:10px}
 :root[data-theme="light"] .search .input{background:rgba(118,118,128,.12)}
 .search>svg{
-  position:absolute;left:11px;top:50%;transform:translateY(-50%);z-index:1;
+  position:absolute;inset-inline-start:11px;top:50%;transform:translateY(-50%);z-index:1;
   width:16px;height:16px;stroke:var(--label-3);fill:none;stroke-width:2.1;stroke-linecap:round;
 }
 
@@ -425,8 +438,10 @@ h4.sec{
 }
 .sw.on{background:var(--acc)}
 .sw.on .knob{transform:translateX(20px)}
+html[dir="rtl"] .sw.on .knob{transform:translateX(-20px)}
 .sw:active .knob{width:31px}
 .sw.on:active .knob{transform:translateX(16px)}
+html[dir="rtl"] .sw.on:active .knob{transform:translateX(-16px)}
 .sw:disabled{opacity:.4}
 
 /* --- segmented control --- */
@@ -441,12 +456,15 @@ h4.sec{
 .seg>button{flex:1 1 0;min-width:0}
 :root[data-theme="light"] .seg{background:rgba(118,118,128,.12)}
 .seg-sel{
-  position:absolute;z-index:0;top:2px;bottom:2px;left:2px;
+  position:absolute;z-index:0;top:2px;bottom:2px;inset-inline-start:2px;
   width:calc((100% - 4px)/var(--n));
   transform:translateX(calc(100% * var(--i)));
   background:var(--surface);border-radius:7px;
   box-shadow:0 3px 8px rgba(0,0,0,.12),0 1px 1px rgba(0,0,0,.06);
   transition:transform var(--med) var(--ease);
+}
+html[dir="rtl"] .seg-sel{
+  transform:translateX(calc(-100% * var(--i)));
 }
 :root[data-theme="light"] .seg-sel{background:#fff}
 .seg button{
@@ -538,8 +556,8 @@ h4.sec{
   font-size:12px;font-weight:500;
   backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
 }
-.exmedia .gifhint{right:9px}
-.exmedia .giftoggle{left:9px}
+.exmedia .gifhint{inset-inline-end:9px}
+.exmedia .giftoggle{inset-inline-start:9px}
 .exmedia .gifhint .icn,.exmedia .giftoggle .icn{font-size:13px}
 /* superset: both exercises are on screen together, so the animations have to give way —
    at 180px you had to scroll a full screen between two exercises done back-to-back */
@@ -557,7 +575,7 @@ h4.sec{
 .sethead .ck-sp{width:30px;flex:none}
 .setrow{display:flex;align-items:center;gap:8px;padding:7px 0;position:relative}
 .setrow+.setrow::before{
-  content:'';position:absolute;left:32px;right:0;top:0;height:var(--hair);background:var(--sep);
+  content:'';position:absolute;inset-inline-start:32px;inset-inline-end:0;top:0;height:var(--hair);background:var(--sep);
 }
 .setrow .n{
   width:24px;height:24px;border-radius:50%;background:var(--surface-2);color:var(--label-2);
@@ -628,7 +646,7 @@ h4.sec{
 #timer.rest .head{display:flex;align-items:center;gap:12px}
 #timer.rest .acts{display:flex;align-items:center;gap:8px}
 #timer.rest .acts .btn{padding-top:11px;padding-bottom:11px}   /* sweaty hands, mid-set */
-#timer.rest .acts .skip{margin-left:auto;min-width:84px}
+#timer.rest .acts .skip{margin-inline-start:auto;min-width:84px}
 /* work timer (issue #16): the same bar doing the opposite job — outlined and tinted so a
    glance tells "you are holding this" apart from "you are recovering". */
 #timer.working{border:var(--hair) solid var(--acc)}
@@ -740,7 +758,7 @@ h4.sec{
 /* --- activity heatmap --- */
 .hm-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:2px}
 .hm-wrap::-webkit-scrollbar{display:none}
-.hm-months{display:flex;margin-left:28px;margin-bottom:5px}
+.hm-months{display:flex;margin-inline-start:28px;margin-bottom:5px}
 .hm-months span{flex:none;width:14px;font-size:11px;color:var(--label-3);white-space:nowrap;overflow:visible}
 .hm-body{display:flex}
 .hm-days{display:flex;flex-direction:column;gap:3px;flex:none;width:28px}
@@ -787,7 +805,7 @@ h4.sec{
 .mrow .nm{flex:1;min-width:0;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mrow .bar{width:74px;height:5px;border-radius:3px;background:var(--surface-2);flex:none;overflow:hidden}
 .mrow .bar i{display:block;height:100%;background:var(--acc);border-radius:3px}
-.mrow .v{font-size:12px;color:var(--label-2);min-width:52px;text-align:right;flex:none}
+.mrow .v{font-size:12px;color:var(--label-2);min-width:52px;text-align:end;flex:none}
 /* A headline number inside a card — tile weight without a tile around it, for the pair of
    readings at the top of the effort card. */
 .stat-v{font-size:26px;font-weight:600;letter-spacing:-.026em;line-height:1.1}
@@ -831,7 +849,7 @@ h4.sec{
 .empty{text-align:center;color:var(--label-2);padding:44px 20px;font-size:15px;line-height:1.45}
 .empty .ico{font-size:34px;color:var(--label-2);margin-bottom:12px;display:flex;justify-content:center}
 .steps-list{
-  padding-left:18px;color:var(--label-2);font-size:15px;line-height:1.5;
+  padding-inline-start:18px;color:var(--label-2);font-size:15px;line-height:1.5;
   display:flex;flex-direction:column;gap:9px;
 }
 .steps-list::marker{color:var(--label-3)}
@@ -852,7 +870,7 @@ h4.sec{
 .cal-d i.plan{background:var(--label-3)}
 .cal-d i.ovr{background:var(--orange)}
 .cal-legend{display:flex;gap:14px;justify-content:center;margin-top:12px;font-size:12px;color:var(--label-3)}
-.cal-legend i{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:5px}
+.cal-legend i{display:inline-block;width:6px;height:6px;border-radius:50%;margin-inline-end:5px}
 
 /* --- accent swatches --- */
 .swatches{display:flex;gap:12px;flex-wrap:wrap}
@@ -862,11 +880,12 @@ h4.sec{
 
 /* --- supersets --- */
 .ss-label{
-  font-size:12px;font-weight:600;letter-spacing:-.004em;text-transform:none;
-  color:var(--acc);margin:8px 0 5px 4px;display:flex;align-items:center;gap:5px;
+  font-size:12px;font-weight:600;letter-spacing:0;text-transform:none;
+  color:var(--acc);margin-block:8px 5px;margin-inline-start:4px;display:flex;align-items:center;gap:5px;
 }
 .ss-label .icn{font-size:13px}
 .item.in-ss{box-shadow:inset 3px 0 0 var(--acc)}
+html[dir="rtl"] .item.in-ss{box-shadow:inset -3px 0 0 var(--acc)}
 .ss-card{
   border-radius:var(--r-lg);padding:14px;
   background:var(--surface);box-shadow:inset 0 0 0 1.5px var(--acc-line);
@@ -882,7 +901,7 @@ h4.sec{
 .today-row{
   display:flex;align-items:center;justify-content:space-between;gap:10px;
   margin-top:12px;padding:12px 14px;border-radius:var(--r);background:var(--surface-2);
-  transition:background var(--fast);width:100%;text-align:left;
+  transition:background var(--fast);width:100%;text-align:start;
 }
 .today-row:active{background:var(--surface-3)}
 .today-row .lbl2{font-size:11px;font-weight:500;letter-spacing:.03em;text-transform:uppercase;color:var(--label-3)}
@@ -908,12 +927,27 @@ h4.sec{
     padding:7px 10px 9px;box-shadow:0 12px 40px -10px rgba(0,0,0,.5);
   }
   #tabbar button.start{margin-top:-26px}
-  .sheet{left:50%;right:auto;margin-left:-320px;width:640px;border-radius:var(--r-xl) var(--r-xl) 0 0}
+  .sheet{left:50%;right:auto;margin-inline-start:-320px;width:640px;border-radius:var(--r-xl) var(--r-xl) 0 0}
   .center{width:340px}
-  #timer{left:50%;right:auto;margin-left:-260px;width:520px;bottom:112px}
+  #timer{left:50%;right:auto;margin-inline-start:-260px;width:520px;bottom:112px}
   /* 520px fits the clock, the bar and all three controls on one line again */
   #timer.rest{flex-direction:row;align-items:center;gap:14px}
   #timer.rest .head{flex:1;min-width:0}
   .exmedia img{height:380px}
   .hm-wrap{display:flex;flex-direction:column;align-items:center}
 }
+
+/* --------------------------------------------------- Arabic / RTL chrome --- */
+html[dir="rtl"] .icn.dir-flip{transform:scaleX(-1)}
+html[dir="rtl"] .wday .lbl,
+html[dir="rtl"] .today-row .lbl2,
+html[dir="rtl"] .sethead,
+html[dir="rtl"] .efftbl .hd .n,
+html[dir="rtl"] .efftbl .hd .f{
+  letter-spacing:0;text-transform:none;
+}
+html[dir="rtl"] #timer .t,
+html[dir="rtl"] .bw-read,
+html[dir="rtl"] .tile .v,
+html[dir="rtl"] .stat-v{letter-spacing:0}
+html[dir="rtl"] .capitalize{text-transform:none}

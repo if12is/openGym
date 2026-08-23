@@ -18,7 +18,8 @@ export function fmtDate(iso, long) {
 }
 export function fmtDur(ms) {
   const m = Math.floor(ms / 60000)
-  return m >= 60 ? Math.floor(m / 60) + 'h ' + (m % 60) + 'm' : m + ' min'
+  if (m >= 60) return t('{0}h {1}m', Math.floor(m / 60), m % 60)
+  return t('{0} min', m)
 }
 // Imported history has no clock — an unknown duration is left out rather than shown as "0 min".
 export const durPart = ms => (ms >= 60000 ? [fmtDur(ms)] : [])
@@ -44,4 +45,13 @@ export function weekKey(d) {
 export const localTZ = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } catch { return 'UTC' } }
 
 export const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
-export const ACCENTS = { lime: '#30d158', sky: '#0a84ff', orange: '#ff9f0a', violet: '#bf5af2', pink: '#ff375f', red: '#ff453a', teal: '#40c8e0', gold: '#ffd60a' }
+export const ACCENTS = {
+  gold: '#d4a017',
+  teal: '#2a9d8f',
+  orange: '#e07a3d',
+  lime: '#3d9b6a',
+  sky: '#2a7d8c',
+  violet: '#8b4d9a',
+  pink: '#c45c6a',
+  red: '#c23b2e',
+}

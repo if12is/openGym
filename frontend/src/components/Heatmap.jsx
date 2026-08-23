@@ -45,7 +45,7 @@ export default function Heatmap({ S, onDay }) {
 
   return <>
     <div className="hm-wrap" ref={wrapRef}>
-      <div className="hm-months" style={{ marginLeft: 30 }}>{months}</div>
+      <div className="hm-months" style={{ marginInlineStart: 30 }}>{months}</div>
       <div className="hm-body">
         <div className="hm-days"><span>{t('Mon')}</span><span /><span>{t('Wed')}</span><span /><span>{t('Fri')}</span><span /><span /></div>
         <div className="hm-grid">{cols}</div>
