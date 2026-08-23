@@ -33,6 +33,9 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install Android platform 35
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -42,13 +45,17 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Build mobile web bundle and sync Capacitor
+      - name: Build mobile web bundle
         working-directory: frontend
         run: npm run build:mobile
 
+      - name: Point Gradle at the Android SDK
+        working-directory: frontend/android
+        run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
+
       - name: Assemble debug APK
         working-directory: frontend/android
-        run: gradle assembleDebug --no-daemon
+        run: gradle assembleDebug --no-daemon --stacktrace
 
       - name: Name the APK
         run: |
