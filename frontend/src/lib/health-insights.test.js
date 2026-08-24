@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   lastDays, estimateHrMax, computeBaselines, trainingLoad,
   readiness, overloadFlag, hrRecovery, suggestRest, pearson, sleepVsVolume, prContext,
-  muscleRecovery, recoveryLevels, RECOVERY_MAX_H, energyBalance,
+  muscleRecovery, recoveryLevels, RECOVERY_MAX_H, energyBalance, sleepStreakWeeks,
 } from './health-insights.js'
 import { isoOf } from './format.js'
 
@@ -272,6 +272,64 @@ describe('rest suggestion', () => {
   it('will not push past the bounds', () => {
     expect(suggestRest(180, Array.from({ length: 6 }, () => ({ drop: 5 })))).toBeNull()
     expect(suggestRest(60, Array.from({ length: 6 }, () => ({ drop: 40 })))).toBeNull()
+  })
+})
+
+describe('sleep streak', () => {
+  const NOW = new Date(at(2026, 8, 26, 12, 0))   // a Wednesday
+
+  // Weeks here are ISO weeks (Mon–Sun), the same ones weekKey and the training
+  // streak use — so the fixtures fill whole weeks rather than "the last N
+  // nights", which would straddle a boundary and satisfy neither side of it.
+  const mondayOf = d => {
+    const x = new Date(d)
+    x.setDate(x.getDate() - ((x.getDay() + 6) % 7))
+    x.setHours(12, 0, 0, 0)
+    return x
+  }
+  const weeksBack = n => { const m = mondayOf(NOW); m.setDate(m.getDate() - n * 7); return m }
+  const fill = (days, monday, count, min) => {
+    for (let i = 0; i < count; i++) {
+      const d = new Date(monday); d.setDate(d.getDate() + i)
+      days[isoOf(d)] = { sleepMin: min }
+    }
+    return days
+  }
+
+  it('is zero with nothing recorded', () => {
+    expect(sleepStreakWeeks({}, 420, 5, NOW)).toBe(0)
+  })
+
+  it('does not count a week that missed the nights', () => {
+    expect(sleepStreakWeeks(fill({}, weeksBack(0), 4, 480), 420, 5, NOW)).toBe(0)
+  })
+
+  it('counts a week that met it', () => {
+    expect(sleepStreakWeeks(fill({}, weeksBack(0), 5, 480), 420, 5, NOW)).toBe(1)
+  })
+
+  it('does not count nights below the target', () => {
+    expect(sleepStreakWeeks(fill({}, weeksBack(0), 7, 400), 420, 5, NOW)).toBe(0)
+  })
+
+  it('runs across consecutive weeks', () => {
+    let days = {}
+    for (let n = 0; n < 3; n++) days = fill(days, weeksBack(n), 6, 480)
+    expect(sleepStreakWeeks(days, 420, 5, NOW)).toBe(3)
+  })
+
+  // Same courtesy the training streak gives: a week still in progress cannot
+  // break a run before it has had the chance to finish.
+  it('does not let an unfinished current week break the run', () => {
+    const days = fill({}, weeksBack(1), 6, 480)   // last week good, this week empty
+    expect(sleepStreakWeeks(days, 420, 5, NOW)).toBe(1)
+  })
+
+  it('stops at the first week that genuinely missed', () => {
+    let days = fill({}, weeksBack(1), 6, 480)
+    days = fill(days, weeksBack(2), 2, 480)       // gap
+    days = fill(days, weeksBack(3), 6, 480)
+    expect(sleepStreakWeeks(days, 420, 5, NOW)).toBe(1)
   })
 })
 

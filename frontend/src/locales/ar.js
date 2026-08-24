@@ -828,6 +828,9 @@ export default {
   'Built from when each set was ticked against what your pulse was doing. A few more logged sessions and the ranking appears.': 'بيتبني من وقت ما بتعلّم على كل سِت مقابل نبضك ساعتها. كام جلسة كمان والترتيب هيظهر.',
   'Put the expensive ones early. The percentage is share of your heart-rate reserve, so it compares fairly across people and days.': 'حطّ التقيلة بدري. النسبة دي من احتياطي نبضك، فبتقارن بعدل بين الأيام وبين الناس.',
 
+  // --- sleep streak ---
+  '{0} week sleep streak': '{0} أسبوع نوم متواصل',
+
   // --- energy balance (weight trend × watch burn = intake, no food logging) ---
   'Energy balance': 'ميزان الطاقة',
   'last 4 weeks': 'آخر ٤ أسابيع',

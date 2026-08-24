@@ -15,7 +15,7 @@ import { useUI } from '../store/useUI.js'
 import Icon from './Icon.jsx'
 import SessionChart, { ZoneBar, ZONE_COLORS, ZONE_NAMES } from './SessionChart.jsx'
 import { getHealth, subscribeHealth, getConn } from '../lib/health-store.js'
-import { readiness, overloadFlag, trainingLoad, sleepVsVolume, suggestRest, prContext, muscleRecovery, recoveryLevels, exerciseCost, energyBalance } from '../lib/health-insights.js'
+import { readiness, overloadFlag, trainingLoad, sleepVsVolume, suggestRest, prContext, muscleRecovery, recoveryLevels, exerciseCost, energyBalance, sleepStreakWeeks } from '../lib/health-insights.js'
 import { loadOfWorkouts, MUSCLE_NAME } from '../lib/muscles.js'
 import { EXIDX } from '../lib/exercises.js'
 import { useStore } from '../store/useStore.js'
@@ -603,6 +603,23 @@ export function ExerciseCostCard({ S }) {
     <p className="dim small" style={{ marginTop: 10, lineHeight: 1.45 }}>
       {t('Put the expensive ones early. The percentage is share of your heart-rate reserve, so it compares fairly across people and days.')}
     </p>
+  </div>
+}
+
+/* ============================ sleep streak ============================ */
+
+// Rides along inside the training-streak card rather than getting one of its
+// own. The two belong together: a run of training weeks and a run of slept
+// weeks are the same kind of claim, and putting them side by side is what makes
+// the second one feel worth keeping.
+export function SleepStreak() {
+  const health = useHealth()
+  if (!MOBILE || !isLinked()) return null
+  const weeks = sleepStreakWeeks(health.days)
+  if (!weeks) return null
+  return <div className="row" style={{ gap: 7, fontSize: 22, fontWeight: 600, letterSpacing: '-.021em', marginTop: 6 }}>
+    <Icon name="sleep" style={{ color: 'var(--indigo)' }} />
+    {t('{0} week sleep streak', weeks)}
   </div>
 }
 

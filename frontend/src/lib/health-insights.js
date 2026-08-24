@@ -9,7 +9,7 @@
 // whatever the last hand-check happened to produce.
 
 import { localDayRange, sessionSamples, peakNearSets, hrReserve } from './health-match.js'
-import { isoOf } from './format.js'
+import { isoOf, weekKey } from './format.js'
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
 const mean = a => (a.length ? a.reduce((n, v) => n + v, 0) / a.length : null)
@@ -319,6 +319,34 @@ export function exerciseCost(workouts, sessions, hrMax, rhr) {
       }
     })
     .sort((x, y) => y.avgPeak - x.avgPeak)
+}
+
+/* ============================ sleep streak ============================ */
+
+// Seven hours, five nights out of the week. A fixed target rather than the
+// user's own average on purpose: a streak measured against yourself is one you
+// cannot fail, and a streak you cannot fail is not worth keeping.
+export const SLEEP_TARGET_MIN = 420
+export const SLEEP_NIGHTS_PER_WEEK = 5
+
+// Counts back the same way the training streak does — including the courtesy
+// that the current week does not break it before it has had a chance to finish.
+export function sleepStreakWeeks(days, target = SLEEP_TARGET_MIN, nights = SLEEP_NIGHTS_PER_WEEK, now = new Date()) {
+  const good = {}
+  for (const [iso, d] of Object.entries(days || {})) {
+    if (!d?.sleepMin || d.sleepMin < target) continue
+    const wk = weekKey(iso)
+    good[wk] = (good[wk] || 0) + 1
+  }
+  let streak = 0
+  const cur = new Date(now)
+  for (let i = 0; i < 520; i++) {
+    const wk = weekKey(isoOf(cur))
+    if ((good[wk] || 0) >= nights) streak++
+    else if (i > 0) break
+    cur.setDate(cur.getDate() - 7)
+  }
+  return streak
 }
 
 /* ============================ energy balance ============================ */
