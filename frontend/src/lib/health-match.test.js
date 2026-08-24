@@ -3,7 +3,7 @@ import {
   gymWindow, hrWindow, localDayRange, overlapMs, GYM_WINDOW_CAP_MS, HR_PAD_MS,
   packSamples, unpackSamples, sliceSamples, downsample, hrStats, sessionSamples,
   zoneOf, zoneMinutes, hrReserve, trimp, density,
-  splitCalories, cardioOutside, mainSleep, sleepSearchRange,
+  splitCalories, cardioOutside, mainSleep, sleepSearchRange, peakNearSets,
 } from './health-match.js'
 
 // Local time throughout — these rules are about calendar days as the user sees
@@ -121,6 +121,39 @@ describe('samples', () => {
 
   it('leaves a short trace alone', () => {
     expect(downsample(samples, 240)).toBe(samples)
+  })
+})
+
+describe('peak pulse at a set', () => {
+  const t0 = at(2026, 8, 24, 18, 0)
+  // A set finished at t0+2min: pulse climbs into it and falls away after.
+  const samples = [
+    { t: t0, bpm: 95 },
+    { t: t0 + 60000, bpm: 110 },
+    { t: t0 + 100000, bpm: 148 },
+    { t: t0 + 120000, bpm: 160 },
+    { t: t0 + 130000, bpm: 165 },
+    { t: t0 + 240000, bpm: 105 },
+  ]
+
+  it('reads the peak around the moment the set was ticked', () => {
+    expect(peakNearSets(samples, [t0 + 120000])).toEqual([165])
+  })
+
+  // The window leans backwards from the tick — a reading four minutes later
+  // belongs to the rest, not to the set.
+  it('ignores samples outside the window', () => {
+    expect(peakNearSets(samples, [t0])).toEqual([95])
+  })
+
+  it('returns one peak per set', () => {
+    expect(peakNearSets(samples, [t0, t0 + 120000])).toHaveLength(2)
+  })
+
+  it('skips sets with no samples near them', () => {
+    expect(peakNearSets(samples, [t0 + 3600000])).toEqual([])
+    expect(peakNearSets([], [t0])).toEqual([])
+    expect(peakNearSets(samples, null)).toEqual([])
   })
 })
 

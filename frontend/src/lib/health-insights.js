@@ -8,7 +8,7 @@
 // Pure functions only, so the thresholds are pinned by tests rather than by
 // whatever the last hand-check happened to produce.
 
-import { localDayRange } from './health-match.js'
+import { localDayRange, sessionSamples, peakNearSets, hrReserve } from './health-match.js'
 import { isoOf } from './format.js'
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
@@ -273,6 +273,52 @@ export function suggestRest(currentSec, recoveries) {
   if (avg < 12 && currentSec < 180) return { sec: Math.min(180, currentSec + 30), why: 'slow', avg: Math.round(avg) }
   if (avg > 25 && currentSec > 60) return { sec: Math.max(60, currentSec - 15), why: 'fast', avg: Math.round(avg) }
   return null
+}
+
+/* ============================ what each lift costs you ============================ */
+
+// Which exercises actually drive your heart rate, ranked.
+//
+// Everyone knows squats are harder than curls; what nobody knows is by how much,
+// for them, on their programme. This answers it with the two things the app now
+// has together: when each set was finished, and what the pulse was doing then.
+//
+// Needs `doneAt` on the sets, so it only sees sessions logged after that started
+// being recorded — the card says so rather than looking broken.
+export const COST_MIN_SETS = 3
+
+export function exerciseCost(workouts, sessions, hrMax, rhr) {
+  const acc = {}
+  for (const w of workouts || []) {
+    const s = sessions?.[w.id]
+    if (!s || s.state !== 'ok') continue
+    const samples = sessionSamples(s)
+    if (samples.length < 4) continue
+    for (const e of w.entries || []) {
+      const doneAts = (e.sets || []).filter(x => x.done && x.doneAt).map(x => x.doneAt)
+      if (!doneAts.length) continue
+      const peaks = peakNearSets(samples, doneAts)
+      if (!peaks.length) continue
+      const a = acc[e.id] || (acc[e.id] = { peaks: [], sessions: 0 })
+      a.peaks.push(...peaks)
+      a.sessions++
+    }
+  }
+  return Object.entries(acc)
+    .filter(([, a]) => a.peaks.length >= COST_MIN_SETS)
+    .map(([id, a]) => {
+      const avg = mean(a.peaks)
+      return {
+        id,
+        avgPeak: Math.round(avg),
+        // As a share of reserve, so the ranking means the same thing to someone
+        // with a resting pulse of 48 and someone at 70.
+        reserve: hrMax > rhr ? Math.round(clamp(hrReserve(avg, hrMax, rhr), 0, 1) * 100) : null,
+        sets: a.peaks.length,
+        sessions: a.sessions,
+      }
+    })
+    .sort((x, y) => y.avgPeak - x.avgPeak)
 }
 
 /* ============================ relationships ============================ */

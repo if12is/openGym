@@ -96,6 +96,27 @@ export function hrStats(samples) {
   return { avg: Math.round(sum / samples.length), max, min, n: samples.length }
 }
 
+// The pulse a set actually drove, read at the set rather than averaged over the
+// session. A session average says nothing about which exercise cost what —
+// squats and leg press land in the same number once you smear them together.
+//
+// The window leans backwards from the moment the set was ticked, because that is
+// when the work happened; a little after, because the peak usually arrives a few
+// seconds late.
+export function peakNearSets(samples, doneAts, before = 45000, after = 15000) {
+  const out = []
+  for (const t of doneAts || []) {
+    let peak = null
+    for (const s of samples || []) {
+      if (s.t < t - before) continue
+      if (s.t > t + after) break
+      if (peak == null || s.bpm > peak) peak = s.bpm
+    }
+    if (peak != null) out.push(peak)
+  }
+  return out
+}
+
 /* ============================ heart-rate zones ============================ */
 
 // Karvonen: zones off heart-rate *reserve*, not raw percentage of max.

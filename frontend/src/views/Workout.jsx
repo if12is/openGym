@@ -204,6 +204,11 @@ function ActiveWorkout() {
     mutEntry(idx, e => {
       e.sets[i].done = !e.sets[i].done
       if (e.sets[i].done) {
+        // When the set was actually finished. Cheap to record (one number on a
+        // row that is already being written) and it is what lets the watch say
+        // anything per-exercise — without it a pulse trace is one undivided
+        // blob covering the whole session.
+        e.sets[i].doneAt = Date.now()
         beep(S.sound, 1040, 0.12); vibrate(30)
         const isLastExInUnit = idx === unit[unit.length - 1]
         const unitDone = unit.every(ui => (ui === idx ? e : A.entries[ui]).sets.every(x => x.done))
@@ -215,7 +220,7 @@ function ActiveWorkout() {
         // (issue #32: the fewest taps that still record what happened).
         const loaded = m === 'reps' && !(isBw({ ...(e.target || {}), id: e.id }) && !e.sets.some(x => x.w > 0))
         if (e.sets.every(x => x.done)) { exJustDone = true; if (loaded && !e.asked) { e.asked = true; askTop = true } }
-      }
+      } else delete e.sets[i].doneAt   // unticked: the timestamp was a claim about a set that didn't happen
     })
     // reps: topWeight first (it chains into the finish/continue prompt on the last unit).
     // cardio/timed or already-confirmed: go straight to the prompt.

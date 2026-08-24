@@ -7,7 +7,7 @@
 // card already applies to partly-rated sets.
 
 import { useEffect, useState } from 'react'
-import { t } from '../lib/i18n.js'
+import { t, exName } from '../lib/i18n.js'
 import { todayISO } from '../lib/format.js'
 import { MOBILE } from '../lib/mobile.js'
 import { effectiveRoutineId } from '../lib/history.js'
@@ -15,8 +15,9 @@ import { useUI } from '../store/useUI.js'
 import Icon from './Icon.jsx'
 import SessionChart, { ZoneBar, ZONE_COLORS, ZONE_NAMES } from './SessionChart.jsx'
 import { getHealth, subscribeHealth, getConn } from '../lib/health-store.js'
-import { readiness, overloadFlag, trainingLoad, sleepVsVolume, suggestRest, prContext, muscleRecovery, recoveryLevels } from '../lib/health-insights.js'
+import { readiness, overloadFlag, trainingLoad, sleepVsVolume, suggestRest, prContext, muscleRecovery, recoveryLevels, exerciseCost } from '../lib/health-insights.js'
 import { loadOfWorkouts, MUSCLE_NAME } from '../lib/muscles.js'
+import { EXIDX } from '../lib/exercises.js'
 import { useStore } from '../store/useStore.js'
 import BodyMap from './BodyMap.jsx'
 import LineChart from './LineChart.jsx'
@@ -550,6 +551,58 @@ export function FinishInsights({ w, prs = [] }) {
     {applied && <div className="small muted row" style={{ gap: 6 }}>
       <Icon name="check" style={{ fontSize: 13 }} />{t('Rest timer set to {0}s', rest.sec)}
     </div>}
+  </div>
+}
+
+/* ============================ what each lift costs ============================ */
+
+// Everyone knows squats are harder than curls. Nobody knows by how much, for
+// them, on their programme — and that is what decides whether the last exercise
+// of the day was ever going to go well.
+export function ExerciseCostCard({ S }) {
+  const health = useHealth()
+  if (!MOBILE || !isLinked()) return null
+
+  const hrMax = health.base?.hrMaxObserved || 0
+  const rhr = health.base?.rhr28 || health.base?.rhr7 || 0
+  const rows = exerciseCost(S.workouts || [], health.sessions, hrMax, rhr)
+
+  // Below two exercises there is no ranking, only a list — and the whole point
+  // is the comparison.
+  if (rows.length < 2) {
+    return <div className="card">
+      <h2>{t('What each lift costs you')}</h2>
+      <div className="muted small">
+        {t('Built from when each set was ticked against what your pulse was doing. A few more logged sessions and the ranking appears.')}
+      </div>
+    </div>
+  }
+
+  const top = rows.slice(0, 8)
+  const max = top[0].avgPeak
+  const min = Math.min(...top.map(r => r.avgPeak))
+  const span = Math.max(1, max - min)
+
+  return <div className="card">
+    <h2>{t('What each lift costs you')} <span className="dim" style={{ textTransform: 'none', letterSpacing: 0 }}>· {t('peak pulse at the set')}</span></h2>
+    <div style={{ marginTop: 8 }}>
+      {top.map(r => {
+        const ex = EXIDX[r.id]
+        return <div className="mrow" key={r.id}>
+          <span className="nm capitalize">{ex ? exName(ex) : r.id}</span>
+          <span className="bar">
+            {/* Scaled across the range shown rather than from zero: every bar
+                starting near full would say nothing, because a resting pulse is
+                not the floor of a working set. */}
+            <i style={{ width: (12 + (r.avgPeak - min) / span * 88) + '%', background: 'var(--red)' }} />
+          </span>
+          <span className="v">{r.avgPeak}{r.reserve != null ? ' · ' + r.reserve + '%' : ''}</span>
+        </div>
+      })}
+    </div>
+    <p className="dim small" style={{ marginTop: 10, lineHeight: 1.45 }}>
+      {t('Put the expensive ones early. The percentage is share of your heart-rate reserve, so it compares fairly across people and days.')}
+    </p>
   </div>
 }
 
