@@ -813,6 +813,10 @@ export function HealthStatsCard({ S }) {
   const avgSleep = avgOf(rows.map(([, d]) => d.sleepMin).filter(Boolean))
   const avgRhr = avgOf(rows.map(([, d]) => d.rhr).filter(Boolean))
   const avgSteps = avgOf(rows.map(([, d]) => d.steps).filter(Boolean))
+  const avgHrv = avgOf(rows.map(([, d]) => d.hrvMs).filter(Boolean))
+  const avgSpo2 = avgOf(rows.map(([, d]) => d.spo2).filter(Boolean))
+  const hrvPts = rows.filter(([, d]) => d.hrvMs)
+    .map(([iso, d]) => ({ t: new Date(iso + 'T12:00:00').getTime(), y: d.hrvMs, d: iso }))
 
   const inRange = (S.workouts || []).filter(w => (w.start || 0) > cutoff)
   const corr = sleepVsVolume(health.days, inRange)
@@ -832,6 +836,12 @@ export function HealthStatsCard({ S }) {
         <div className="v">{avgRhr ? Math.round(avgRhr) : '—'}<small>{t('bpm')}</small></div></div>
       <div className="hstat"><div className="l"><Icon name="footsteps" />{t('Avg steps')}</div>
         <div className="v">{avgSteps ? Math.round(avgSteps).toLocaleString() : '—'}</div></div>
+      {/* Only appear once the watch has actually written them — plenty of
+          setups never record either, and an empty tile is worse than none. */}
+      {avgHrv != null && <div className="hstat"><div className="l"><Icon name="bolt" />{t('Avg HRV')}</div>
+        <div className="v">{Math.round(avgHrv)}<small>{t('ms')}</small></div></div>}
+      {avgSpo2 != null && <div className="hstat"><div className="l"><Icon name="heart" />{t('Avg SpO₂')}</div>
+        <div className="v">{avgSpo2.toFixed(1)}<small>%</small></div></div>}
     </div>
 
     {sleepPts.length > 2 && <>
@@ -844,6 +854,14 @@ export function HealthStatsCard({ S }) {
       <div className="chart"><LineChart points={rhrPts} h={130} unit={t('bpm')} color="var(--red)" /></div>
       <p className="dim small" style={{ marginTop: 6, lineHeight: 1.45 }}>
         {t('A resting pulse drifting down over months is the clearest fitness signal here. Day to day it mostly reports sleep, heat and stress.')}
+      </p>
+    </>}
+
+    {hrvPts.length > 6 && <>
+      <h4 className="sec" style={{ marginTop: 14 }}>{t('Heart-rate variability')}</h4>
+      <div className="chart"><LineChart points={hrvPts} h={120} unit={t('ms')} color="var(--mint)" /></div>
+      <p className="dim small" style={{ marginTop: 6, lineHeight: 1.45 }}>
+        {t('Read overnight, and noisy night to night — the direction over weeks is the part worth watching. A sustained drop usually means fatigue, illness or a run of poor sleep.')}
       </p>
     </>}
 
