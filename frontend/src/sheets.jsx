@@ -20,7 +20,7 @@ import { buildPlanBundle, parsePlan, mergePlan, printPlan } from './lib/plan-sha
 import { estimate1RM, best1RM, is1RMRecord, REP_CAP } from './lib/onerm.js'
 import { nextPrescription, applyPrescription, policyFor, defaultIncrement, POLICIES_FOR, POLICY_NAME, POLICY_DESC, MAX_BW_SETS } from './lib/progression.js'
 import { MOBILE, shareExport } from './lib/mobile.js'
-import { SessionBlock, FinishInsights } from './components/HealthCards.jsx'
+import { SessionBlock, FinishInsights, todayReadiness, hhmm } from './components/HealthCards.jsx'
 import { updateHealth } from './lib/health-store.js'
 
 const S = () => useStore.getState().S
@@ -31,6 +31,16 @@ const snd = () => S().sound
 // Watch readings live in their own store (never synced, never exported), keyed by
 // workout id — so removing a workout has to remove them too.
 const dropHealthSession = id => { try { updateHealth(h => { delete h.sessions[id] }) } catch (e) { /* nothing linked */ } }
+
+// Scale a prescribed weight down and land it on something you can actually load.
+// Rounds DOWN to the bar's increment: a deload that leaves you reaching for a
+// 1.25 kg change nobody owns is not a deload.
+function deloaded(plan, factor, exId, unit) {
+  if (!plan || factor >= 1 || plan.weight == null || plan.weight <= 0) return plan
+  const inc = defaultIncrement(exId, unit) || 2.5
+  const w = Math.max(inc, Math.floor((plan.weight * factor) / inc) * inc)
+  return { ...plan, weight: Math.round(w * 100) / 100 }
+}
 
 /* ============================ custom confirm dialog ============================ */
 function ConfirmDialog({ title, message, confirmText, cancelText, danger, onConfirm, close }) {
@@ -829,21 +839,70 @@ export function WorkoutRow({ w, onClick }) {
 }
 
 /* ============================ workout lifecycle ============================ */
+// How much a deload takes off. One number, not a slider: the point is to make
+// the easy day easy to take, and a session spent deciding how much to back off
+// is a session spent negotiating with yourself.
+export const DELOAD_FACTOR = 0.9
+
 export function startFlow(routineId) {
-  bwSheet({ required: true, onDone: bw => beginWorkout(routineId, bw) })
+  bwSheet({
+    required: true,
+    onDone: bw => {
+      // The one place where a health reading is allowed to change what the app
+      // does — and even here it only opens a choice, never picks for you.
+      const read = todayReadiness(S())
+      if (read && (read.band === 'easy' || read.band === 'rest')) {
+        deloadSheet(read, factor => beginWorkout(routineId, bw, factor))
+        return
+      }
+      beginWorkout(routineId, bw)
+    },
+  })
 }
-export function beginWorkout(routineId, bw) {
+
+// Offered when readiness is low. Three answers, because "train or don't" is not
+// the real choice — backing the top sets off is what people actually want and
+// what they will not do on their own.
+function DeloadPrompt({ read, onPick, close }) {
+  const pct = Math.round((1 - DELOAD_FACTOR) * 100)
+  const sleep = read.parts.find(p => p.key === 'sleep')
+  const rhr = read.parts.find(p => p.key === 'rhr')
+  const reason = sleep && sleep.score < 55 ? t('You slept {0} against your usual {1}.', hhmm(sleep.value), hhmm(sleep.target))
+    : rhr && rhr.score < 55 ? t('Your resting pulse is {0} above your week.', rhr.delta)
+      : t('This week has already asked a lot of you.')
+
+  return <div style={{ textAlign: 'center', padding: '4px 0' }}>
+    <h3 style={{ marginBottom: 6 }}>{t('Ease off today?')}</h3>
+    <div className="muted" style={{ marginBottom: 16, lineHeight: 1.5 }}>
+      {reason} {t('Training is still fine — the weights just do not have to be.')}
+    </div>
+    <button className="btn primary" onClick={() => { close(); onPick(DELOAD_FACTOR) }}>
+      {t('Take {0}% off today', pct)}
+    </button>
+    <div style={{ height: 8 }} />
+    <Button onClick={() => { close(); onPick(1) }}>{t('Train as planned')}</Button>
+    <div style={{ height: 8 }} />
+    <Button variant="ghost" className="dim" onClick={() => { close(); nav('/home') }}>{t('Not today')}</Button>
+  </div>
+}
+const deloadSheet = (read, onPick) =>
+  ui().openSheet(close => <DeloadPrompt read={read} onPick={onPick} close={close} />, { kind: 'center' })
+
+export function beginWorkout(routineId, bw, factor = 1) {
   const st = S()
   const r = routineId ? st.routines.find(x => x.id === routineId) : null
   // The prescription is applied as the session is built, so you walk up to the bar with the
   // right weight already on the screen instead of being told about it afterwards. `plan` is
   // kept on the entry purely so the workout can explain the number it chose.
   const entries = (r ? r.ex : []).map(cfg => {
-    const plan = nextPrescription(st, cfg, r)
+    const plan = deloaded(nextPrescription(st, cfg, r), factor, cfg.id, st.unit)
     return { id: cfg.id, sg: cfg.sg, target: { ...cfg }, plan, sets: applyPrescription(buildSets(st, cfg), plan) }
   })
   update(s => {
-    s.active = { id: uid(), d: todayISO(), start: Date.now(), routineId, name: r ? r.name : t('Freestyle'), bw: bw || null, cur: 0, entries }
+    s.active = { id: uid(), d: todayISO(), start: Date.now(), routineId, name: r ? r.name : t('Freestyle'), bw: bw || null, cur: 0, entries,
+      // Kept on the session so the finish summary can say the day was scaled —
+      // otherwise a deloaded workout reads back as a stall in the history.
+      deload: factor < 1 ? Math.round((1 - factor) * 100) : null }
   })
   useUI.getState().stopRest()
   nav('/workout')
@@ -926,6 +985,9 @@ function FinishSummary({ w, prs, e1prs = [], close }) {
       {prs.map(id => <div key={id} className="small accent capitalize row" style={{ gap: 5 }}><Icon name="trophy" style={{ fontSize: 13 }} />{t('New PR:')} {(EXIDX[id] || {}).n || id}</div>)}
       {e1prs.map(p => <div key={p.id} className="small accent capitalize row" style={{ gap: 5 }}><Icon name="chartLine" style={{ fontSize: 13 }} />{t('Best estimated 1RM:')} {(EXIDX[p.id] || {}).n || p.id} · {fmtNum(p.est)} {st.unit}</div>)}
     </div>}
+    {w.deload && <div className="small muted row" style={{ gap: 6, justifyContent: 'center', marginBottom: 10 }}>
+      <Icon name="arrowDown" style={{ fontSize: 13 }} />{t('Planned easy day — {0}% off the weights.', w.deload)}
+    </div>}
     <FinishInsights w={w} prs={prs} />
     <h4 className="sec" style={{ textAlign: 'start' }}>{t('What you just trained')}</h4>
     <BodyMap load={loadOfWorkouts([w])} body={st.body} />
@@ -962,7 +1024,11 @@ function doFinishWorkout() {
     // finished workout cannot say whether it hit its reps, and a timed session reads back
     // as "0 reps". It is what the progression engine works from.
     entries: A.entries.map(e => ({ id: e.id, sets: e.sets, topW: e.topW || null, target: e.target || null })).filter(e => e.sets.some(s => s.done)),
-    prs
+    prs,
+    // Carried through so a deliberately lighter day reads back as one, instead
+    // of looking like a stall to both the progression engine's user and the
+    // person scrolling their history in three months.
+    deload: A.deload || null,
   }
   w.vol = workoutVolume(w)
   update(s => {

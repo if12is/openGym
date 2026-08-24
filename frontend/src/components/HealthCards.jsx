@@ -262,6 +262,20 @@ export function LivePulse({ bpm, at }) {
 
 export const isLinked = () => getConn().state === 'ok'
 
+// Today's readiness, for callers outside React (the start flow asks before it
+// builds a session). Returns null when there is no watch or no reading, which
+// every caller treats as "carry on normally" — a missing score must never
+// change what the app does.
+export function todayReadiness(S) {
+  if (!MOBILE || !isLinked()) return null
+  const h = getHealth()
+  const iso = todayISO()
+  const day = h.days[iso]
+  if (!day || (day.sleepMin == null && day.rhr == null)) return null
+  const load = trainingLoad(h.sessions, S?.workouts || [], iso)
+  return readiness(day, h.base, load)
+}
+
 /* ============================ home briefing ============================ */
 
 // The one card that answers "what should I do today" before the plan does.

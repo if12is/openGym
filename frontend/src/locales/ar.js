@@ -810,4 +810,15 @@ export default {
   'Short nights since — these are taking longer than usual.': 'الليالي بعدها كانت قصيرة — دول واخدين وقت أطول من المعتاد.',
   'ready': 'جاهزة',
   '{0}% · {1}h since {2} sets': '{0}٪ · بقالها {1} س من {2} مجموعة',
+
+  // --- deload offer at the start of a session ---
+  'Ease off today?': 'تخفّف النهارده؟',
+  'You slept {0} against your usual {1}.': 'نمت {0} مقابل {1} المعتاد.',
+  'Your resting pulse is {0} above your week.': 'نبض راحتك أعلى بـ {0} من أسبوعك.',
+  'This week has already asked a lot of you.': 'الأسبوع ده طلب منك كتير أصلاً.',
+  'Training is still fine — the weights just do not have to be.': 'التمرين لسه تمام — الأوزان بس مش لازم تكون زي ما هي.',
+  'Take {0}% off today': 'نزّل {0}٪ النهارده',
+  'Train as planned': 'تمرّن زي المخطط',
+  'Not today': 'مش النهارده',
+  'Planned easy day — {0}% off the weights.': 'يوم خفيف مقصود — {0}٪ أقل في الأوزان.',
 }
