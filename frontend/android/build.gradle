@@ -7,7 +7,10 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.7.2'
+        // connect-client 1.1.0 requires AGP 8.9.1+. 8.10.1 is the newest that
+        // still runs on Gradle 8.11.1 (AGP 8.11 wants Gradle 8.13), so this is
+        // the bump that does not also drag the wrapper along.
+        classpath 'com.android.tools.build:gradle:8.10.1'
         classpath 'com.google.gms:google-services:4.4.2'
         // Health Connect's client API is coroutine-based (every read is a suspend
         // function), so the plugin that wraps it is Kotlin. Version is repeated
@@ -26,6 +29,14 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+    }
+    def kv = rootProject.ext.has('kotlin_version') ? rootProject.ext.kotlin_version : '2.0.21'
+    configurations.configureEach {
+        resolutionStrategy {
+            force "org.jetbrains.kotlin:kotlin-stdlib:$kv"
+            force "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kv"
+            force "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kv"
+        }
     }
 }
 

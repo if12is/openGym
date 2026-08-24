@@ -5,9 +5,16 @@ ext {
     // feature gracefully on old phones" was never an option. Android 8 shipped
     // in 2017 and no device that old can talk to a Watch Fit 4 anyway.
     minSdkVersion = 26
-    compileSdkVersion = 35
+    // 36 because androidx.health.connect:connect-client 1.1.0 refuses to be
+    // consumed by anything compiled against less ("requires libraries and
+    // applications that depend on it to compile against version 36 or later").
+    // Compiling against 36 only makes the newer APIs visible; it does not opt the
+    // app into Android 16 runtime behaviour — that is targetSdk, left at 35 on
+    // purpose so edge-to-edge enforcement doesn't silently reshape the UI.
+    compileSdkVersion = 36
     targetSdkVersion = 35
-    kotlinVersion = '2.1.21'
+    // Property name Capacitor plugins look up (kotlin_version, not kotlinVersion).
+    kotlin_version = '2.0.21'
     // 1.1.0 stable — the third-party Capacitor health plugins are still on
     // 1.1.0-alpha10 / 1.2.0-alpha01.
     healthConnectVersion = '1.1.0'

@@ -1,5 +1,10 @@
 apply plugin: 'com.android.application'
-apply plugin: 'org.jetbrains.kotlin.android'
+// Capacitor's filesystem plugin already registers a kotlin extension on some
+// AGP lines. Applying twice fails the whole assemble with "Cannot add extension
+// with name 'kotlin'".
+if (project.extensions.findByName('kotlin') == null) {
+    apply plugin: 'org.jetbrains.kotlin.android'
+}
 
 android {
     namespace "ch.duartesantos.opengym"
@@ -13,6 +18,11 @@ android {
     }
     kotlinOptions {
         jvmTarget = '21'
+    }
+    packaging {
+        resources {
+            pickFirsts += 'META-INF/*.kotlin_module'
+        }
     }
     defaultConfig {
         applicationId "ch.duartesantos.opengym"

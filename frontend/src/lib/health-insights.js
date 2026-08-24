@@ -168,6 +168,78 @@ export function overloadFlag(day, base, load, recentSessions) {
   return reasons.length >= 2 ? { reasons } : null
 }
 
+/* ============================ recovery per muscle ============================ */
+
+// How long a muscle needs before it is worth training hard again, and how far
+// through that it currently is.
+//
+// The app already knows when each muscle was last worked and how much. What it
+// could never know before is whether the time since was spent recovering or just
+// passing — eight hours of sleep and four hours of sleep are not the same 24
+// hours. That is the entire reason this belongs to the watch and not to the log.
+//
+// Deliberately not presented as a clock. It is a direction ("chest is still
+// cooked"), and dressing an estimate up as "17h 40m remaining" would claim a
+// precision that a wrist-worn sleep estimate does not have.
+export const RECOVERY_BASE_H = 24        // even one hard set buys a day
+export const RECOVERY_PER_SET_H = 4
+export const RECOVERY_MAX_H = 72         // past three days, everything is ready
+
+// `lastLoads` is { muscle: { sets, at } } — built by the caller from the workout
+// log, so this file never has to pull in the exercise database.
+export function muscleRecovery(lastLoads, days, base, now = Date.now()) {
+  const out = {}
+  for (const [muscle, last] of Object.entries(lastLoads || {})) {
+    if (!last || !last.at) continue
+    const hours = (now - last.at) / 3600000
+    const need = Math.min(RECOVERY_MAX_H, RECOVERY_BASE_H + (last.sets || 0) * RECOVERY_PER_SET_H)
+    const factor = sleepDebtFactor(last.at, days, base, now)
+    const pct = Math.round(Math.max(0, Math.min(1, hours / (need * factor))) * 100)
+    out[muscle] = {
+      pct,
+      hoursSince: Math.round(hours),
+      sets: last.sets || 0,
+      // Only worth surfacing when sleep actually moved the answer, otherwise it
+      // is noise on a screen that already has a lot of numbers.
+      slowedBySleep: factor > 1.1,
+    }
+  }
+  return out
+}
+
+// Nights since the muscle was worked, against this person's own average. Short
+// nights stretch the window; there is no credit for sleeping more than usual,
+// because catching up is not the same as banking.
+function sleepDebtFactor(sinceMs, days, base, now) {
+  const target = base?.sleep14
+  if (!target) return 1
+  const slept = []
+  for (const d = new Date(sinceMs); +d <= now; d.setDate(d.getDate() + 1)) {
+    const row = days?.[isoOf(d)]
+    if (row?.sleepMin) slept.push(row.sleepMin)
+  }
+  if (!slept.length) return 1
+  const avg = mean(slept)
+  return clamp(target / avg, 1, 1.4)
+}
+
+// 0 = ready (or never trained), 4 = worked within the last few hours. Higher
+// shading means "needs attention", which is the same direction the load map
+// reads in, so one map does not contradict the other.
+export function recoveryLevels(rec) {
+  const lv = {}
+  for (const [muscle, r] of Object.entries(rec || {})) {
+    lv[muscle] = r.pct >= 100 ? 0
+      : r.pct >= 75 ? 1
+        : r.pct >= 50 ? 2
+          : r.pct >= 25 ? 3
+            : 4
+  }
+  return lv
+}
+
+export const READY = r => !r || r.pct >= 100
+
 /* ============================ rest between sets ============================ */
 
 // How far the pulse came down in the minute after a peak. The single most useful
