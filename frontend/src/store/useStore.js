@@ -4,6 +4,7 @@ import { localTZ } from '../lib/format.js'
 import { registerCustom } from '../lib/exercises.js'
 import { DEMO, DEMO_SEEDED } from '../lib/demo.js'
 import { MOBILE, nativeLoad, nativeSave, syncReminder } from '../lib/mobile.js'
+import { initOfflineMediaFromDisk } from '../lib/offline-media.js'
 
 const KEY = 'gym_state_v1'
 export const DEF = {
@@ -15,7 +16,8 @@ export const DEF = {
   // that a profile which never chose (loaded state is overlaid on DEF, on every path: local,
   // server pull, backup import) still falls back to the `showRir` boolean this replaced and
   // keeps the column it had. See effortOf.
-  reminder: { on: false, time: '08:00', tz: null }, effort: null
+  reminder: { on: false, time: '08:00', tz: null }, effort: null,
+  offlineMedia: { ready: false, fileCount: 0, downloadedAt: null },
 }
 const clone = o => JSON.parse(JSON.stringify(o))
 
@@ -159,6 +161,16 @@ export const useStore = create((set, get) => {
         }
         get().setGuest(true)
         syncReminder(get().S)
+        const manifest = await initOfflineMediaFromDisk()
+        if (manifest?.ready) {
+          get().update(s => {
+            s.offlineMedia = {
+              ready: true,
+              fileCount: manifest.count || (manifest.files || []).length,
+              downloadedAt: manifest.downloadedAt || null,
+            }
+          }, false)
+        }
         set({ ready: true })
         return
       }

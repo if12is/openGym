@@ -10,6 +10,8 @@ import { wakeLockSupported } from '../lib/wakelock.js'
 import { t, LANGS, INSTR_LANGS } from '../lib/i18n.js'
 import { DEMO, REPO } from '../lib/demo.js'
 import { MOBILE, shareExport, syncReminder } from '../lib/mobile.js'
+import { checkForUpdate, downloadUpdate, getInstalledVersion, getPendingInstall, installPendingUpdate } from '../lib/app-update.js'
+import { downloadOfflineMedia, clearOfflineMedia, offlineMediaJobCount, offlineMediaLabel } from '../lib/offline-media.js'
 import { loadStarterPlan, confirmSheet, importFromApp } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
 import { Section, Row, SelectRow, Switch, Segmented, Button, TextField } from '../components/ui.jsx'
@@ -142,6 +144,9 @@ export default function Settings() {
 
     {(user || MOBILE) && <NotificationsCard S={S} update={update} toast={toast} />}
 
+    {MOBILE && <AppUpdateCard toast={toast} />}
+    {MOBILE && <OfflineMediaCard S={S} update={update} toast={toast} />}
+
     {/* ---------- appearance ---------- */}
     <Section title={t('Appearance')} footer={DEMO || MOBILE ? undefined : t('synced with your profile')}>
       <Row icon="moon" iconTint="var(--indigo)" title={t('Theme')}>
@@ -240,6 +245,143 @@ function effortHelpSheet() {
 function NotificationsCard({ S, update, toast }) {
   if (MOBILE) return <MobileReminderCard S={S} update={update} toast={toast} />
   return <PushCard S={S} update={update} toast={toast} />
+}
+
+function AppUpdateCard({ toast }) {
+  const [local, setLocal] = useState(null)
+  const [remote, setRemote] = useState(null)
+  const [pending, setPending] = useState(null)
+  const [busy, setBusy] = useState('')
+  const [progress, setProgress] = useState(0)
+
+  const refresh = async () => {
+    try {
+      const [loc, pend] = await Promise.all([getInstalledVersion(), getPendingInstall()])
+      setLocal(loc)
+      setPending(pend)
+      const chk = await checkForUpdate()
+      setRemote(chk.remote)
+      if (chk.available) return
+    } catch { /* offline */ }
+  }
+
+  useEffect(() => { refresh() }, [])
+
+  const download = async () => {
+    if (!remote) return
+    setBusy('download')
+    setProgress(0)
+    try {
+      const meta = await downloadUpdate(remote, p => setProgress(Math.round(p * 100)))
+      setPending(meta)
+      toast(t('Update downloaded — tap Install'))
+    } catch (e) {
+      toast(t('Update download failed: {0}', e.message || ''))
+    } finally { setBusy('') }
+  }
+
+  const install = async () => {
+    setBusy('install')
+    try {
+      await installPendingUpdate()
+      toast(t('Follow the system prompts to finish installing'))
+    } catch (e) {
+      toast(t('Could not start install: {0}', e.message || ''))
+    } finally { setBusy('') }
+  }
+
+  const updateAvailable = remote && local && Number(remote.versionCode) > Number(local.versionCode)
+  const subtitle = local
+    ? t('Installed: {0} ({1})', local.versionName, local.versionCode)
+    : t('Checking…')
+
+  return (
+    <Section title={t('App update')}
+      footer={t('Updates install over the old version — no need to uninstall. Keep the same signing key between builds.')}>
+      <Row icon="rocket" iconTint="var(--acc)" title={t('Version')} subtitle={subtitle}
+        value={busy === 'download' ? `${progress}%` : undefined} />
+      {updateAvailable && !pending && (
+        <Row icon="download" iconTint="var(--blue)" title={t('Download {0}', remote.versionName)}
+          subtitle={t('Newer than your installed build')}
+          value={busy === 'download' ? `${progress}%` : undefined}
+          accessory={busy === 'download' ? 'none' : 'chevron'}
+          onClick={busy ? undefined : download} />
+      )}
+      {pending && (
+        <Row icon="checkCircle" iconTint="var(--green)" title={t('Ready to install {0}', pending.versionName)}
+          subtitle={t('Tap to open the Android installer')}
+          accessory="chevron" onClick={busy ? undefined : install} />
+      )}
+      {!updateAvailable && !pending && (
+        <Row icon="check" iconTint="var(--label-3)" title={t('You’re on the latest version')} />
+      )}
+      <Row icon="reset" iconTint="var(--grey)" title={t('Check again')} accessory="chevron" onClick={busy ? undefined : refresh} />
+    </Section>
+  )
+}
+
+function OfflineMediaCard({ S, update, toast }) {
+  const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState(null)
+  const total = offlineMediaJobCount()
+
+  const start = () => confirmSheet({
+    title: t('Download exercises for offline use?'),
+    message: t('About {0} image and animation files (~140 MB). Instructions are already in the app — this saves the pictures and GIFs on your phone.', total),
+    confirmText: t('Download'),
+    onConfirm: async () => {
+      setBusy(true)
+      try {
+        const manifest = await downloadOfflineMedia(p => setProgress(p))
+        update(s => {
+          s.offlineMedia = {
+            ready: true,
+            fileCount: manifest.count || total,
+            downloadedAt: manifest.downloadedAt,
+          }
+        })
+        toast(t('Offline exercises ready'))
+      } catch (e) {
+        toast(t('Download failed: {0}', e.message || ''))
+      } finally {
+        setBusy(false)
+        setProgress(null)
+      }
+    },
+  })
+
+  const wipe = () => confirmSheet({
+    title: t('Delete offline exercises?'),
+    message: t('Frees space on your phone. You can download again anytime.'),
+    confirmText: t('Delete'),
+    danger: true,
+    onConfirm: async () => {
+      await clearOfflineMedia()
+      update(s => { s.offlineMedia = { ready: false, fileCount: 0, downloadedAt: null } })
+      toast(t('Offline files deleted'))
+    },
+  })
+
+  const pct = progress ? Math.round((progress.done / progress.total) * 100) : 0
+
+  return (
+    <Section title={t('Offline exercises')}
+      footer={t('After downloading, images and animations work without internet. Your workouts and settings stay on this phone either way.')}>
+      <Row icon="download" iconTint="var(--teal)"
+        title={S.offlineMedia?.ready ? t('Offline pack ready') : t('Download for offline')}
+        subtitle={busy && progress
+          ? t('{0}% — {1} / {2}', pct, progress.done, progress.total)
+          : offlineMediaLabel(S)}
+        accessory={busy ? `${pct}%` : (S.offlineMedia?.ready ? 'check' : 'chevron')}
+        onClick={busy ? undefined : (S.offlineMedia?.ready ? undefined : start)} />
+      {S.offlineMedia?.ready && (
+        <Row icon="trash" iconTint="var(--red)" title={t('Delete offline files')} danger onClick={busy ? undefined : wipe} />
+      )}
+      {!S.offlineMedia?.ready && !busy && (
+        <Row icon="info" iconTint="var(--label-3)" title={t('Needs Wi‑Fi or mobile data once')} subtitle={t('Then works fully offline in the gym')} />
+      )}
+    </Section>
+  )
 }
 
 // Mobile build: the reminder is a native local notification scheduled on planned weekdays —

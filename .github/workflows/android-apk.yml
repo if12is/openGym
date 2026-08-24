@@ -17,6 +17,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Cache signing keystore
+        uses: actions/cache@v4
+        id: keystore-cache
+        with:
+          path: frontend/android/app/gemak-debug.keystore
+          key: gemak-keystore-v1
+
+      - name: Create signing keystore
+        if: steps.keystore-cache.outputs.cache-hit != 'true'
+        run: |
+          keytool -genkeypair \
+            -keystore frontend/android/app/gemak-debug.keystore \
+            -alias gemak -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass gemakdebug -keypass gemakdebug \
+            -dname "CN=Gemak, OU=Mobile, O=Gemak, L=Cairo, ST=Cairo, C=EG"
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -41,6 +57,9 @@ jobs:
         with:
           gradle-version: 8.11.1
 
+      - name: Bump Android version
+        run: node scripts/bump-android-version.mjs ${{ github.run_number }}
+
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
@@ -52,10 +71,7 @@ jobs:
       - name: Point Gradle at the Android SDK
         working-directory: frontend/android
         run: |
-          echo "ANDROID_HOME=${ANDROID_HOME}"
-          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}"
           echo "sdk.dir=${ANDROID_HOME:-$ANDROID_SDK_ROOT}" > local.properties
-          cat local.properties
 
       - name: Assemble debug APK
         working-directory: frontend/android
@@ -65,20 +81,19 @@ jobs:
 
       - name: Surface Gradle error
         if: failure()
-        run: |
-          tail -n 80 frontend/android/gradle-build.log || true
-          echo "::error::$(tail -n 20 frontend/android/gradle-build.log | tr '\n' ' | ')"
+        run: tail -n 80 frontend/android/gradle-build.log || true
 
       - name: Name the APK
         run: |
           mkdir -p dist-apk
           cp frontend/android/app/build/outputs/apk/debug/app-debug.apk dist-apk/gemak-debug.apk
+          cp frontend/android/app-version.json dist-apk/app-version.json
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: gemak-android-apk
-          path: dist-apk/gemak-debug.apk
+          path: dist-apk/*
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -87,14 +102,16 @@ jobs:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'android-latest' }}
           name: "${{ startsWith(github.ref, 'refs/tags/') && format('چيمك {0}', github.ref_name) || format('چيمك — نسخة أندرويد {0}', github.run_number) }}"
           body: |
-            نسخة أندرويد من **چيمك** بعد الهوية العربية ودعم RTL.
+            نسخة أندرويد من **چيمك**.
 
-            1. نزّل ملف `gemak-debug.apk`
-            2. على الموبايل: اسمح بالتثبيت من مصادر غير معروفة
-            3. افتح الملف وثبّت التطبيق
+            1. من الإعدادات → **تحديث التطبيق** → نزّل وثبّت (أو نزّل `gemak-debug.apk` يدوياً)
+            2. التحديث بيتثبت **فوق النسخة القديمة** — مش محتاج تمسحها
+            3. من الإعدادات → **التمارين بدون نت** → نزّل الصور والحركات (~140 ميجا)
 
             اللغة الأساسية عربي مصري، والاتجاه من اليمين لليسار.
-          files: dist-apk/gemak-debug.apk
+          files: |
+            dist-apk/gemak-debug.apk
+            dist-apk/app-version.json
           prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
           make_latest: true
           generate_release_notes: true

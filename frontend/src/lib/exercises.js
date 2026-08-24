@@ -45,8 +45,22 @@ function bases(env, local, remoteDirs) {
 const IMG_BASES = bases(import.meta.env.VITE_IMG_BASE, 'img/', [GH + 'images/', JD + 'images/'])
 const GIF_BASES = bases(import.meta.env.VITE_GIF_BASE, 'gif/', [GH + 'videos/', JD + 'videos/'])
 
-export const imgCandidates = ex => (ex && ex.img) ? IMG_BASES.map(b => b + ex.img) : []
-export const gifCandidates = ex => (ex && ex.gif) ? GIF_BASES.map(b => b + ex.gif) : []
+import { offlineImgUrl, offlineGifUrl } from './offline-media.js'
+
+export const imgCandidates = ex => {
+  if (!ex?.img) return []
+  const out = []
+  const off = offlineImgUrl(ex.img)
+  if (off) out.push(off)
+  return out.concat(IMG_BASES.map(b => b + ex.img))
+}
+export const gifCandidates = ex => {
+  if (!ex?.gif) return []
+  const out = []
+  const off = offlineGifUrl(ex.gif)
+  if (off) out.push(off)
+  return out.concat(GIF_BASES.map(b => b + ex.gif))
+}
 export const imgSrc = ex => imgCandidates(ex)[0] || ''
 export const gifSrc = ex => gifCandidates(ex)[0] || ''
 

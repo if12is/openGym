@@ -7,8 +7,8 @@ android {
         applicationId "ch.duartesantos.opengym"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 6
-        versionName "1.3.0"
+        versionCode 9
+        versionName "1.4.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +16,29 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        debug {
+            def ks = file('gemak-debug.keystore')
+            if (ks.exists()) {
+                storeFile ks
+                storePassword 'gemakdebug'
+                keyAlias 'gemak'
+                keyPassword 'gemakdebug'
+            }
+        }
+    }
     buildTypes {
+        debug {
+            if (signingConfigs.debug.storeFile != null) {
+                signingConfig signingConfigs.debug
+            }
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (signingConfigs.debug.storeFile != null) {
+                signingConfig signingConfigs.debug
+            }
         }
     }
 }
