@@ -7,9 +7,13 @@ import { ACCENTS } from './lib/format.js'
 import { setLang, useLang, isRtl } from './lib/i18n.js'
 import { setNav } from './lib/nav.js'
 import { useWakeLock } from './lib/wakelock.js'
+import { applyFont } from './lib/fonts.js'
+import { bootAppUpdate } from './lib/app-update.js'
+import { MOBILE } from './lib/mobile.js'
 import { startFlow } from './sheets.jsx'
 import Icon from './components/Icon.jsx'
 import TabBar from './components/TabBar.jsx'
+import UpdateBanner from './components/UpdateBanner.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import Modals from './components/Modals.jsx'
 import Toast from './components/Toast.jsx'
@@ -27,10 +31,11 @@ import Admin from './views/Admin.jsx'
 
 bindUI(useUI)   // lets the shared controls open sheets without importing the store at module scope
 
-function applyPrefs(theme, accent) {
+function applyPrefs(theme, accent, font) {
   const de = document.documentElement
   de.dataset.theme = theme === 'light' ? 'light' : 'dark'
   de.dataset.accent = ACCENTS[accent] ? accent : 'gold'
+  applyFont(font)
   const meta = document.querySelector('meta[name="theme-color"]')
   if (meta) meta.content = de.dataset.theme === 'light' ? '#f3ead6' : '#140e0a'
 }
@@ -42,8 +47,25 @@ function Shell() {
   const isGuest = useStore(s => s.isGuest())
   const langV = useLang()   // re-renders the whole shell when the language (pack) changes
   useEffect(() => { setNav(navigate) }, [navigate])
-  useEffect(() => { applyPrefs(S.theme, S.accent) }, [S.theme, S.accent])
+  useEffect(() => { applyPrefs(S.theme, S.accent, S.font) }, [S.theme, S.accent, S.font])
   useEffect(() => { setLang(S.lang || 'ar') }, [S.lang])
+  useEffect(() => { if (ready && MOBILE) bootAppUpdate() }, [ready])
+  // Coming back to the app is the only moment health data can be refreshed: the
+  // app deliberately never asks for background read access, and Health Sync
+  // writes minutes late anyway, so "on resume" is both the earliest and the
+  // cheapest time to catch up. This also re-checks the permission, which Android
+  // withdraws on its own after about a month away.
+  useEffect(() => {
+    if (!ready || !MOBILE) return
+    const onShow = () => {
+      if (document.visibilityState !== 'visible') return
+      import('./lib/health-sync.js')
+        .then(m => m.bootHealth(useStore.getState().S.workouts))
+        .catch(() => { /* nothing linked */ })
+    }
+    document.addEventListener('visibilitychange', onShow)
+    return () => document.removeEventListener('visibilitychange', onShow)
+  }, [ready])
   useEffect(() => {
     const l = S.lang || 'ar'
     document.documentElement.lang = l
@@ -67,7 +89,9 @@ function Shell() {
     <>
       {/* keyed on the route: a view that throws is contained, and switching tabs
           re-mounts the boundary, so the tab bar is always a way out */}
-      <div id="app" className="vfade" key={loc.pathname}>
+      <div id="app">
+        {authed && <UpdateBanner />}
+        <div className="vfade" key={loc.pathname}>
         <ErrorBoundary>
           {!authed ? <Login /> : (
             <Routes>
@@ -84,6 +108,7 @@ function Shell() {
             </Routes>
           )}
         </ErrorBoundary>
+        </div>
       </div>
       <TabBar onStart={startFlow} />
       <RestTimer />

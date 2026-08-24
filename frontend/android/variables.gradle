@@ -1,7 +1,16 @@
 ext {
-    minSdkVersion = 23
+    // 26, not 23, because Health Connect starts at Android 8.0 and
+    // androidx.health.connect:connect-client declares minSdk 26 itself — the
+    // manifest merger fails the build outright below that, so "disable the
+    // feature gracefully on old phones" was never an option. Android 8 shipped
+    // in 2017 and no device that old can talk to a Watch Fit 4 anyway.
+    minSdkVersion = 26
     compileSdkVersion = 35
     targetSdkVersion = 35
+    kotlinVersion = '2.1.21'
+    // 1.1.0 stable — the third-party Capacitor health plugins are still on
+    // 1.1.0-alpha10 / 1.2.0-alpha01.
+    healthConnectVersion = '1.1.0'
     androidxActivityVersion = '1.9.2'
     androidxAppCompatVersion = '1.7.0'
     androidxCoordinatorLayoutVersion = '1.2.0'

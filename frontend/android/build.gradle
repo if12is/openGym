@@ -9,6 +9,11 @@ buildscript {
     dependencies {
         classpath 'com.android.tools.build:gradle:8.7.2'
         classpath 'com.google.gms:google-services:4.4.2'
+        // Health Connect's client API is coroutine-based (every read is a suspend
+        // function), so the plugin that wraps it is Kotlin. Version is repeated
+        // here rather than read from variables.gradle because buildscript{} is
+        // evaluated before that file is applied.
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.21'
 
         // NOTE: Do not place your application dependencies here; they belong
         // in the individual module build.gradle files

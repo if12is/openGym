@@ -42,6 +42,15 @@ const P = {
   bolt: <path d="M13.4 3.4 5.6 13.6h5.2l-.2 7 7.8-10.2h-5.2Z" />,
   shield: <path d="M12 3.6 5 6.2v5.5c0 4 2.9 7.5 7 8.7 4.1-1.2 7-4.7 7-8.7V6.2Z" />,
   heart: <path d="M12 20c-.4 0-.8-.1-1-.4l-6.2-6a4.6 4.6 0 0 1 0-6.6 4.4 4.4 0 0 1 6.2 0l1 1 1-1a4.4 4.4 0 0 1 6.2 0 4.6 4.6 0 0 1 0 6.6l-6.2 6c-.2.3-.6.4-1 .4Z" />,
+  // Case + strap stubs + crown. The strap is drawn open rather than closed so it
+  // still reads as a watch at tab-bar size, where a full band fills in to a blob.
+  watch: <><rect x="6.6" y="6.6" width="10.8" height="10.8" rx="3.3" /><path d="M9.1 6.6 9.5 3.4h5l.4 3.2M9.1 17.4l.4 3.2h5l.4-3.2M18.7 10.5v3M12 9.6V12l1.9 1.2" /></>,
+  // Two prints, offset and rotated, rather than a shoe outline — a shoe reads as
+  // a product and this has to read as movement.
+  footsteps: <><path d="M6.6 4.6c1.5 0 2.4 1.3 2.4 3.1 0 1.5-.5 2.6-.5 3.8 0 .9-.7 1.4-1.9 1.4s-1.9-.5-1.9-1.4c0-1.2-.5-2.3-.5-3.8 0-1.8.9-3.1 2.4-3.1Z" /><path d="M4.9 15.1c0 1.6.7 2.5 1.7 2.5s1.7-.9 1.7-2.5" /><path d="M17.4 9.1c1.5 0 2.4 1.3 2.4 3.1 0 1.5-.5 2.6-.5 3.8 0 .9-.7 1.4-1.9 1.4s-1.9-.5-1.9-1.4c0-1.2-.5-2.3-.5-3.8 0-1.8.9-3.1 2.4-3.1Z" /><path d="M15.7 19.6c0 1.1.7 1.8 1.7 1.8s1.7-.7 1.7-1.8" /></>,
+  // Half moon with a crest of Zs — a plain moon already means "dark theme" in
+  // this app's Appearance section, so sleep needs its own mark.
+  sleep: <><path d="M20 14.4a8 8 0 0 1-10.4-10 8.2 8.2 0 1 0 10.4 10Z" /><path d="M13.6 3.6h3.6l-3.6 4h3.6" /></>,
   rocket: <><path d="M12 3.6c2.8 2.5 4.2 5.7 4.2 9.1v4.5H7.8v-4.5c0-3.4 1.4-6.6 4.2-9.1Z" /><circle cx="12" cy="10.3" r="1.8" /><path d="M7.8 14 5.2 16.6v3.8l2.6-2M16.2 14l2.6 2.6v3.8l-2.6-2" /></>,
   sparkles: <><path d="m8.4 3.8 1.1 2.9 2.9 1.1-2.9 1.1-1.1 2.9-1.1-2.9L4.4 7.8l2.9-1.1Z" /><path d="m16.2 12.4.8 2.1 2.1.8-2.1.8-.8 2.1-.8-2.1-2.1-.8 2.1-.8Z" /></>,
   lightbulb: <><path d="M9.2 16.4a5.6 5.6 0 1 1 5.6 0v1.8H9.2Z" /><path d="M10 20.6h4" /></>,
@@ -112,6 +121,7 @@ const P = {
   signOut: <><path d="M14.2 4.6H7a1.9 1.9 0 0 0-1.9 1.9v11a1.9 1.9 0 0 0 1.9 1.9h7.2" /><path d="m16.8 8.4 3.6 3.6-3.6 3.6M20.4 12H10.2" /></>,
   shuffle: <><path d="M3.6 7.2h2.9c1.6 0 2.8.9 3.8 2.4l3 4.8c1 1.5 2.2 2.4 3.8 2.4h2.9M3.6 16.8h2.9c1.6 0 2.8-.9 3.8-2.4l.7-1.1M15.6 9.9l.7-1.1c1-1.5 2.2-2.4 3.8-2.4h1.9" /><path d="m17.9 4.3 2.8 2.1-2.8 2.1M17.9 14.7l2.8 2.1-2.8 2.1" /></>,
   info: <><circle cx="12" cy="12" r="8.2" /><path d="M12 11v5.4" /><circle cx="12" cy="7.9" r=".9" fill="currentColor" stroke="none" /></>,
+  textAa: <><path d="M4.2 18.6 9.6 5.4 15 18.6M6.4 13.6h6.4" /><path d="M17 18.6v-8.4M17 10.2h2.6a2.1 2.1 0 1 1 0 4.2H17" /></>,
 }
 
 // A few keys are aliases so call sites can say what they mean.

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>چيمك — بيانات الصحة</title>
+<style>
+  :root{
+    color-scheme: dark light;
+    --bg:#140e0a; --surface:#241c16; --label:#f6ead4;
+    --label-2:rgba(246,234,212,.62); --acc:#d4a017;
+    --sep:rgba(196,160,80,.28);
+  }
+  @media (prefers-color-scheme: light){
+    :root{ --bg:#f3ead6; --surface:#fff8eb; --label:#2a1f14;
+           --label-2:rgba(42,31,20,.62); --acc:#c49212; --sep:rgba(140,100,40,.28) }
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--bg);color:var(--label);
+    font-family:'Cairo','Segoe UI',Tahoma,sans-serif;
+    line-height:1.75;padding:22px 18px 48px;
+    -webkit-text-size-adjust:100%;
+  }
+  .wrap{max-width:620px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+  h1{font-size:23px;line-height:1.3;font-weight:700}
+  h2{font-size:16px;font-weight:600;color:var(--acc);margin-bottom:6px}
+  p,li{font-size:15px;color:var(--label-2)}
+  section{background:var(--surface);border-radius:14px;padding:16px 17px}
+  ul{padding-inline-start:20px;display:flex;flex-direction:column;gap:6px}
+  .lead{font-size:16px;color:var(--label)}
+  footer{font-size:13px;color:var(--label-2);text-align:center;padding-top:6px}
+  strong{color:var(--label);font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>بيانات الصحة في چيمك</h1>
+  <p class="lead">
+    چيمك بيقرا بيانات صحية من Health Connect على الموبايل ده عشان يعرضها جنب تمارينك.
+    الصفحة دي بتقول بالظبط بيقرا إيه، وبيعمل بيه إيه، وفين بيتخزن.
+  </p>
+
+  <section>
+    <h2>بيقرا إيه</h2>
+    <ul>
+      <li>ضربات القلب — عشان يرسم نبضك أثناء التمرين ويحسب مناطق المجهود</li>
+      <li>نبض الراحة — عشان يقارن يومك بمتوسط أسبوعك</li>
+      <li>النوم — مدة نوم الليلة اللي فاتت</li>
+      <li>الخطوات والسعرات — عشان يفصل مجهود الجيم عن باقي اليوم</li>
+      <li>جلسات التمرين المسجّلة على الساعة — مشي أو جري برّه الجيم</li>
+    </ul>
+    <p style="margin-top:10px">قراءة بس. چيمك <strong>مابيكتبش</strong> أي حاجة في Health Connect.</p>
+  </section>
+
+  <section>
+    <h2>بيروح فين</h2>
+    <p>
+      البيانات بتفضل على الموبايل ده وبس، في تخزين التطبيق الخاص.
+      <strong>مفيش رفع لأي سيرفر</strong> — لا بتاع چيمك ولا جوجل ولا هواوي —
+      ومابتدخلش في ملف الباك أب اللي بتصدّره من الإعدادات.
+    </p>
+  </section>
+
+  <section>
+    <h2>مفيش تسجيل دخول</h2>
+    <p>
+      شاشة الموافقة اللي بتشوفها هي منتقي صلاحيات Health Connect بتاع أندرويد.
+      مش تسجيل دخول بحساب جوجل ولا هواوي، وچيمك مابيشوفش أي حساب.
+      البيانات بتوصل Health Connect من التطبيق اللي بيزامن ساعتك (زي Health Sync).
+    </p>
+  </section>
+
+  <section>
+    <h2>إزاي توقفه</h2>
+    <ul>
+      <li>من چيمك: الإعدادات ← الساعة والصحة ← فك الربط. ده بيمسح كل اللي اتقرا من الساعة، وسجل تمارينك مابيتلمسش.</li>
+      <li>من النظام: Health Connect ← أذونات التطبيقات ← چيمك ← إلغاء الصلاحيات.</li>
+      <li>أندرويد بنفسه بيسحب الصلاحيات لو التطبيق مافتحش حوالي ٣٠ يوم.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>مش نصيحة طبية</h2>
+    <p>
+      كل الأرقام تقديرية وجاية من ساعة استهلاكية — درجة الجاهزية وتحذير الإرهاق
+      اقتراحات تدريبية، مش تشخيص. لو فيه قلق صحي، كلّم دكتور.
+    </p>
+  </section>
+
+  <footer>چيمك · مفتوح المصدر (AGPL v3)</footer>
+</div>
+</body>
+</html>

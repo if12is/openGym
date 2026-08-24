@@ -10,10 +10,12 @@ import { wakeLockSupported } from '../lib/wakelock.js'
 import { t, LANGS, INSTR_LANGS } from '../lib/i18n.js'
 import { DEMO, REPO } from '../lib/demo.js'
 import { MOBILE, shareExport, syncReminder } from '../lib/mobile.js'
-import { checkForUpdate, downloadUpdate, getInstalledVersion, getPendingInstall, installPendingUpdate } from '../lib/app-update.js'
+import { useAppUpdate, bootAppUpdate, startUpdateDownload, installPendingUpdate } from '../lib/app-update.js'
+import { FONTS, FONT_IDS, fontOf, fontFamilyCss, ensureFont } from '../lib/fonts.js'
 import { downloadOfflineMedia, clearOfflineMedia, offlineMediaJobCount, offlineMediaLabel } from '../lib/offline-media.js'
 import { loadStarterPlan, confirmSheet, importFromApp } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
+import WatchCard from '../components/WatchCard.jsx'
 import { Section, Row, SelectRow, Switch, Segmented, Button, TextField } from '../components/ui.jsx'
 
 export default function Settings() {
@@ -144,6 +146,11 @@ export default function Settings() {
 
     {(user || MOBILE) && <NotificationsCard S={S} update={update} toast={toast} />}
 
+    {/* Sits right after "During a workout" because that is what it feeds — the
+        pulse trace, the calorie split and the rest-timer suggestion all land on
+        the session screens, not here. */}
+    {MOBILE && <WatchCard toast={toast} />}
+
     {MOBILE && <AppUpdateCard toast={toast} />}
     {MOBILE && <OfflineMediaCard S={S} update={update} toast={toast} />}
 
@@ -166,6 +173,10 @@ export default function Settings() {
           onChange={v => update(s => { s.body = v })}
         />
       </Row>
+      <FontSelectRow value={S.font || 'cairo'} onChange={v => update(s => { s.font = v })} />
+      <div className="font-preview" style={{ fontFamily: fontFamilyCss(S.font) }}>
+        {t('Font preview: Gemak — workout today 123')}
+      </div>
       <div className="lrow" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 12, paddingTop: 13, paddingBottom: 14 }}>
         <span className="lrow-t">{t('Accent color')}</span>
         <div className="swatches">
@@ -247,33 +258,48 @@ function NotificationsCard({ S, update, toast }) {
   return <PushCard S={S} update={update} toast={toast} />
 }
 
-function AppUpdateCard({ toast }) {
-  const [local, setLocal] = useState(null)
-  const [remote, setRemote] = useState(null)
-  const [pending, setPending] = useState(null)
-  const [busy, setBusy] = useState('')
-  const [progress, setProgress] = useState(0)
-
-  const refresh = async () => {
-    try {
-      const [loc, pend] = await Promise.all([getInstalledVersion(), getPendingInstall()])
-      setLocal(loc)
-      setPending(pend)
-      const chk = await checkForUpdate()
-      setRemote(chk.remote)
-      if (chk.available) return
-    } catch { /* offline */ }
+function FontSelectRow({ value, onChange }) {
+  const cur = fontOf(value)
+  const open = async () => {
+    await Promise.all(FONT_IDS.map(id => ensureFont(id).catch(() => {})))
+    useUI.getState().openSheet(close => (
+      <>
+        <h3>{t('App typeface')}</h3>
+        <div className="sect-b">
+          {FONT_IDS.map(id => {
+            const f = FONTS[id]
+            return (
+              <button key={id} className="lrow tap" onClick={() => { close(); onChange(id) }}>
+                <span className="lrow-m">
+                  <span className="lrow-t" style={{ fontFamily: fontFamilyCss(id) }}>{f.label}</span>
+                  <span className="lrow-s">{t(f.subtitle)}</span>
+                </span>
+                {id === (value || 'cairo') && <Icon name="check" className="lrow-k" />}
+              </button>
+            )
+          })}
+        </div>
+        <p className="sect-f">{t('Free licensed Arabic fonts, stored in the app — works offline.')}</p>
+        <div style={{ height: 8 }} />
+      </>
+    ))
   }
+  return (
+    <Row icon="textAa" iconTint="var(--purple)" title={t('App typeface')}
+      value={<span style={{ fontFamily: fontFamilyCss(value) }}>{cur.label}</span>}
+      accessory="chevron" onClick={open} />
+  )
+}
 
-  useEffect(() => { refresh() }, [])
+function AppUpdateCard({ toast }) {
+  const s = useAppUpdate()
+  const [busy, setBusy] = useState('')
+  const pct = Math.round((s.progress || 0) * 100)
 
   const download = async () => {
-    if (!remote) return
     setBusy('download')
-    setProgress(0)
     try {
-      const meta = await downloadUpdate(remote, p => setProgress(Math.round(p * 100)))
-      setPending(meta)
+      await startUpdateDownload()
       toast(t('Update downloaded — tap Install'))
     } catch (e) {
       toast(t('Update download failed: {0}', e.message || ''))
@@ -290,32 +316,41 @@ function AppUpdateCard({ toast }) {
     } finally { setBusy('') }
   }
 
-  const updateAvailable = remote && local && Number(remote.versionCode) > Number(local.versionCode)
-  const subtitle = local
-    ? t('Installed: {0} ({1})', local.versionName, local.versionCode)
-    : t('Checking…')
+  const subtitle = s.local
+    ? t('Installed: {0} ({1})', s.local.versionName, s.local.versionCode)
+    : s.phase === 'checking' ? t('Checking…') : t('Version')
+  const downloading = s.phase === 'downloading'
+  const ver = s.remote?.versionName || s.pending?.versionName || ''
 
   return (
     <Section title={t('App update')}
-      footer={t('Updates install over the old version — no need to uninstall. Keep the same signing key between builds.')}>
+      footer={t('Checked automatically when you open the app. An interrupted download resumes from where it stopped.')}>
       <Row icon="rocket" iconTint="var(--acc)" title={t('Version')} subtitle={subtitle}
-        value={busy === 'download' ? `${progress}%` : undefined} />
-      {updateAvailable && !pending && (
-        <Row icon="download" iconTint="var(--blue)" title={t('Download {0}', remote.versionName)}
+        value={downloading ? `${pct}%` : undefined} />
+      {s.phase === 'available' && (
+        <Row icon="download" iconTint="var(--blue)" title={t('Download {0}', ver)}
           subtitle={t('Newer than your installed build')}
-          value={busy === 'download' ? `${progress}%` : undefined}
-          accessory={busy === 'download' ? 'none' : 'chevron'}
-          onClick={busy ? undefined : download} />
+          accessory="chevron" onClick={busy || downloading ? undefined : download} />
       )}
-      {pending && (
-        <Row icon="checkCircle" iconTint="var(--green)" title={t('Ready to install {0}', pending.versionName)}
+      {downloading && (
+        <Row icon="download" iconTint="var(--blue)"
+          title={t('Downloading update… {0}%', pct)}
+          subtitle={t('If this stops, it continues the next time you open the app')} />
+      )}
+      {s.phase === 'ready' && (
+        <Row icon="checkCircle" iconTint="var(--green)" title={t('Ready to install {0}', ver)}
           subtitle={t('Tap to open the Android installer')}
           accessory="chevron" onClick={busy ? undefined : install} />
       )}
-      {!updateAvailable && !pending && (
+      {s.phase === 'latest' && (
         <Row icon="check" iconTint="var(--label-3)" title={t('You’re on the latest version')} />
       )}
-      <Row icon="reset" iconTint="var(--grey)" title={t('Check again')} accessory="chevron" onClick={busy ? undefined : refresh} />
+      {s.phase === 'error' && (
+        <Row icon="info" iconTint="var(--orange)" title={t('Could not check for updates')}
+          subtitle={s.error || t('Try again when you’re online')} />
+      )}
+      <Row icon="reset" iconTint="var(--grey)" title={t('Check again')} accessory="chevron"
+        onClick={busy || downloading ? undefined : () => bootAppUpdate()} />
     </Section>
   )
 }

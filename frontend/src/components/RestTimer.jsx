@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useUI } from '../store/useUI.js'
 import { t } from '../lib/i18n.js'
+import { RestPulseHint } from './HealthCards.jsx'
 import { Button } from './ui.jsx'
 
 const clock = sec => Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0')
@@ -43,6 +44,10 @@ export default function RestTimer() {
       <div className="head">
         <div className="t">{clock(timer.left)}</div>
         <div className="bar"><i style={{ width: pct + '%' }} /></div>
+        {/* Whether the pulse has actually come back down — the thing the clock
+            above is standing in for. Renders nothing unless a watch is linked
+            and its last reading is fresh enough to mean anything. */}
+        <RestPulseHint />
       </div>
       <div className="acts">
         <Button size="sm" icon="minus" onClick={() => addRest(-15)}>15s</Button>

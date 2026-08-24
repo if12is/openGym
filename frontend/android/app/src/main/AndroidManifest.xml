@@ -27,7 +27,44 @@
             android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- Health Connect requires the app to be able to explain, from the consent
+             screen itself, what it does with health data. Two entry points, because
+             the platform changed how it asks between versions:
+               · up to Android 13 the permission sheet fires ACTION_SHOW_PERMISSIONS_RATIONALE
+               · from Android 14 Health Connect is part of the OS and uses the
+                 VIEW_PERMISSION_USAGE alias below
+             Without BOTH, the permission picker opens missing its privacy link on
+             one version or the other — and on 14+ it can come up empty entirely. -->
+        <activity
+            android:name=".HealthRationaleActivity"
+            android:label="@string/app_name"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@style/AppTheme">
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
+        </activity>
+
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:targetActivity=".HealthRationaleActivity"
+            android:exported="true"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
     </application>
+
+    <!-- Lets the app see whether Health Connect is installed at all. Package
+         visibility is filtered from Android 11 up, so without this the
+         availability check reports "missing" on a phone that has it. -->
+    <queries>
+        <package android:name="com.google.android.apps.healthdata" />
+    </queries>
 
     <!-- Permissions -->
 
@@ -37,4 +74,21 @@
          on Android 12+. Where it isn't granted, scheduling silently falls back to inexact
          alarms — the reminder still arrives, just not to the minute. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
+    <!-- Health Connect, read-only. Every permission declared here shows up on one
+         consent screen, so the list is kept to what a feature actually renders —
+         a long list is the main reason people decline the whole thing.
+         Nothing is written back: the app reads what the watch's bridge app
+         (Health Sync) has already put in the on-device store. -->
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_RESTING_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_SLEEP" />
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.READ_ACTIVE_CALORIES_BURNED" />
+    <uses-permission android:name="android.permission.health.READ_TOTAL_CALORIES_BURNED" />
+    <uses-permission android:name="android.permission.health.READ_EXERCISE" />
+    <!-- Without this, Health Connect caps every read at roughly the last 30 days
+         from the moment access was first granted. It is what makes a year of
+         history possible at all — the user still has to grant it separately. -->
+    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" />
 </manifest>

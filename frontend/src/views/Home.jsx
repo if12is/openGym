@@ -7,6 +7,7 @@ import { t, dateLocale } from '../lib/i18n.js'
 import { bwSheet, goalSheet, dayOverrideSheet, calendarSheet, startFlow, loadStarterPlan, bwDeltaColor } from '../sheets.jsx'
 import LineChart from '../components/LineChart.jsx'
 import Icon from '../components/Icon.jsx'
+import { DayBriefing } from '../components/HealthCards.jsx'
 import { Button } from '../components/ui.jsx'
 import { glyphOf } from '../lib/glyphs.js'
 
@@ -73,6 +74,11 @@ export default function Home() {
           : <Icon name="plus" className="chev" />}
       </div>
     </div>
+
+    {/* Directly under today's session rather than above it: readiness is context
+        for the decision the card above asks you to make, and pushing "Start"
+        below the fold to make room for a score gets the priority backwards. */}
+    <DayBriefing S={S} />
 
     {!S.routines.length && !S.active && (
       <div className="card">

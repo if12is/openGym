@@ -9,7 +9,7 @@ import { initOfflineMediaFromDisk } from '../lib/offline-media.js'
 const KEY = 'gym_state_v1'
 export const DEF = {
   unit: 'kg', restSec: 90, sound: true, keepAwake: true, lang: 'ar',
-  theme: 'dark', accent: 'gold', body: 'male', targetW: null,
+  theme: 'dark', accent: 'gold', font: 'cairo', body: 'male', targetW: null,
   bodyweight: [], routines: [], week: {}, dayPlan: {},
   exWeights: {}, workouts: [], active: null, customEx: [], gifSize: 'full',
   // effort: which per-set effort scale is logged — 'none' | 'rir' | 'rpe'. null, not 'none', so
@@ -45,7 +45,13 @@ export const useStore = create((set, get) => {
   const persist = (S, push = true) => {
     S._ts = Date.now()
     registerCustom(S.customEx)
-    localStorage.setItem(KEY, JSON.stringify(S))
+    // Guarded because a throw here escapes update() and takes down every write in
+    // the app, not just this one — a checked-off set, a changed setting, a
+    // finished workout. localStorage can refuse for reasons that have nothing to
+    // do with us (quota shared across the origin, Safari private mode, a browser
+    // set to block site data). On mobile the file mirror below is the durable
+    // copy anyway; in a browser the in-memory state still carries the session.
+    try { localStorage.setItem(KEY, JSON.stringify(S)) } catch (e) { /* keep going */ }
     set({ S })
     if (MOBILE) nativePersist()
     if (push && get().user) {
@@ -172,6 +178,13 @@ export const useStore = create((set, get) => {
           }, false)
         }
         set({ ready: true })
+        // Health Connect, after the UI is already up: the first sync is a few
+        // native round trips and none of it gates the first paint. It also has to
+        // run after the workout list is restored, because pruning orphaned
+        // sessions needs to know which workouts still exist.
+        import('../lib/health-sync.js')
+          .then(m => m.bootHealth(get().S.workouts))
+          .catch(() => { /* no watch linked, or no native side in this build */ })
         return
       }
       // Demo build (GitHub Pages): no backend at all — seed once, stay in guest mode.

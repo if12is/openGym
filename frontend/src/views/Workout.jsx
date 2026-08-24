@@ -11,6 +11,7 @@ import { api } from '../lib/api.js'
 import Media from '../components/Media.jsx'
 import { startFlow, exercisePicker, exConfigSheet, exerciseDetailSheet, topWeightSheet, finishWorkout, workoutCompleteSheet, confirmSheet } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
+import { LivePulse, useLivePulse } from '../components/HealthCards.jsx'
 import { Button, Check, NumberField } from '../components/ui.jsx'
 import { nextPrescription, applyPrescription } from '../lib/progression.js'
 import { glyphOf } from '../lib/glyphs.js'
@@ -224,6 +225,9 @@ function ActiveWorkout() {
     else if (exJustDone && m === 'time') useUI.getState().toast(t('Hold logged'))
   }
 
+  // Latest pulse the watch has written, while this screen is in front.
+  const pulse = useLivePulse(true)
+
   // Live-presence heartbeat so the admin dashboard can show who's training now. Signed-in only —
   // guests have no server session. Reads fresh state each tick so progress stays current.
   useEffect(() => {
@@ -258,6 +262,9 @@ function ActiveWorkout() {
       <button className="iconbtn" style={{ color: 'var(--acc)' }} aria-label={t('Finish')} onClick={finishWorkout}><Icon name="check" /></button>
     </div>
     <div className="wprog"><i style={{ width: (total ? done / total * 100 : 0) + '%' }} /></div>
+    {pulse && <div className="row" style={{ justifyContent: 'center', marginTop: 10 }}>
+      <LivePulse bpm={pulse.bpm} at={pulse.at} />
+    </div>}
 
     {A.entries.length ? <>
       <div className="muted small" style={{ marginBottom: 6 }}>{isSuperset ? t('Superset {0} / {1}', unitIdx + 1, units.length) : t('Exercise {0} / {1}', unitIdx + 1, units.length)}</div>

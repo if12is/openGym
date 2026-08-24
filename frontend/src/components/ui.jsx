@@ -258,7 +258,7 @@ export function SelectRow({ icon, iconTint, title, value, options, onChange, she
         <div className="sect-b">
           {options.map(o => (
             <button key={o.value} className="lrow tap" onClick={() => { close(); onChange(o.value) }}>
-              <span className="lrow-m"><span className="lrow-t">{o.label}</span>
+              <span className="lrow-m"><span className="lrow-t" style={o.style}>{o.label}</span>
                 {o.subtitle && <span className="lrow-s">{o.subtitle}</span>}</span>
               {o.value === value && <Icon name="check" className="lrow-k" />}
             </button>
