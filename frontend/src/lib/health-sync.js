@@ -16,7 +16,7 @@ import {
   getHealth, getConn, getSession, updateHealth, pruneHealth,
   refreshLinkState, loadHealthFromDisk,
 } from './health-store.js'
-import { aggregate, readHeartRate, readSleep, readRestingHeartRate, readExerciseSessions } from './health-connect.js'
+import { aggregate, readHeartRate, readSleep, readRestingHeartRate, readExerciseSessions, readRecovery } from './health-connect.js'
 import {
   gymWindow, hrWindow, localDayRange, hrStats, zoneMinutes, trimp,
   downsample, packSamples, sessionSamples, mainSleep, cardioOutside, splitCalories,
@@ -38,10 +38,11 @@ export async function syncDay(iso) {
   const to = Math.min(end, now)
   if (to <= start) return null
 
-  const [agg, sleep, rhr] = await Promise.all([
+  const [agg, sleep, rhr, rec] = await Promise.all([
     aggregate(start, to),
     readSleep(start - 30 * 3600000, to),   // reaches back past midnight for last night
     readRestingHeartRate(start, to),
+    readRecovery(start, to),
   ])
 
   const row = {}
@@ -58,6 +59,16 @@ export async function syncDay(iso) {
     // Lowest of the day rather than the latest: a resting reading taken while
     // walking to the car is not a resting reading.
     row.rhr = Math.min(...rhr.samples.map(s => s.bpm))
+  }
+  if (rec.ok) {
+    // Averaged across the night's readings rather than taking one: a wrist SpO2
+    // spot check moves several points on how the arm happened to be lying.
+    if (rec.spo2.length) {
+      row.spo2 = Math.round((rec.spo2.reduce((n, s) => n + s.pct, 0) / rec.spo2.length) * 10) / 10
+    }
+    if (rec.hrv.length) {
+      row.hrvMs = Math.round(rec.hrv.reduce((n, s) => n + s.ms, 0) / rec.hrv.length)
+    }
   }
   if (!Object.keys(row).length) return null
 

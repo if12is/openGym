@@ -174,6 +174,10 @@ export const READ_SCOPES = [
   'READ_SLEEP',
   'READ_RESTING_HEART_RATE',
   'READ_EXERCISE',
+  // Night-time spot readings. Additive: nothing breaks if the user declines
+  // them, the two cards that use them simply do not appear.
+  'READ_OXYGEN_SATURATION',
+  'READ_HEART_RATE_VARIABILITY',
 ]
 
 let plugin = null
@@ -187,20 +191,42 @@ export async function healthPlugin() {
   } catch (e) { return null }
 }
 
+function withTimeout(p, ms, reason) {
+  return new Promise((resolve, reject) => {
+    const id = setTimeout(() => reject(Object.assign(new Error(reason), { code: reason })), ms)
+    Promise.resolve(p).then(
+      v => { clearTimeout(id); resolve(v) },
+      e => { clearTimeout(id); reject(e) },
+    )
+  })
+}
+
+function rejectReason(e, fallback = 'denied') {
+  const msg = String(e?.code || e?.message || e || '')
+  if (msg.includes('timeout')) return 'timeout'
+  if (msg.includes('no-picker') || msg.includes('no-activity')) return 'no-picker'
+  if (msg.includes('unavailable')) return 'unavailable'
+  if (msg.includes('UNIMPLEMENTED') || msg.includes('not implemented')) return 'no-plugin'
+  return fallback
+}
+
 // Failures come back as a named reason rather than a thrown string, because each
 // one needs a different thing from the user:
 //   'no-plugin'   — native side isn't in this build
 //   'unavailable' — Health Connect isn't installed on this phone
 //   'update'      — installed but too old
 //   'denied'      — consent screen dismissed, or heart rate refused
+//   'timeout'     — native call never returned (Honor/Huawei bind hang)
+//   'no-picker'   — permission intent could not be launched
 export async function checkAvailability() {
   const p = await healthPlugin()
   if (!p) return { ok: false, reason: 'no-plugin' }
   try {
-    const r = await p.isAvailable()
+    const r = await withTimeout(p.isAvailable(), 10000, 'timeout')
     if (r?.available) return { ok: true }
+    if (r?.reason === 'timeout') return { ok: false, reason: 'timeout' }
     return { ok: false, reason: r?.reason === 'update-required' ? 'update' : 'unavailable' }
-  } catch (e) { return { ok: false, reason: 'no-plugin' } }
+  } catch (e) { return { ok: false, reason: rejectReason(e, 'timeout') } }
 }
 
 export async function connectWatch(deviceLabel) {
@@ -210,9 +236,11 @@ export async function connectWatch(deviceLabel) {
   const p = await healthPlugin()
   let res
   try {
+    // No short timeout here: once the system picker is on screen the user
+    // can take a minute. Native rejects quickly if the picker never opens.
     res = await p.requestAuthorization({ read: READ_SCOPES, requestHistoryAccess: true })
   } catch (e) {
-    return { ok: false, reason: 'denied' }
+    return { ok: false, reason: rejectReason(e, 'denied') }
   }
 
   const granted = res?.granted || []

@@ -64,6 +64,12 @@
          availability check reports "missing" on a phone that has it. -->
     <queries>
         <package android:name="com.google.android.apps.healthdata" />
+        <intent>
+            <action android:name="androidx.health.ACTION_REQUEST_HEALTH_PERMISSIONS" />
+        </intent>
+        <intent>
+            <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+        </intent>
     </queries>
 
     <!-- Permissions -->
@@ -87,6 +93,10 @@
     <uses-permission android:name="android.permission.health.READ_ACTIVE_CALORIES_BURNED" />
     <uses-permission android:name="android.permission.health.READ_TOTAL_CALORIES_BURNED" />
     <uses-permission android:name="android.permission.health.READ_EXERCISE" />
+    <!-- Night-time spot readings, used as a trend rather than a measurement.
+         Requested with the rest so the consent screen is asked once, not twice. -->
+    <uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION" />
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE_VARIABILITY" />
     <!-- Without this, Health Connect caps every read at roughly the last 30 days
          from the moment access was first granted. It is what makes a year of
          history possible at all — the user still has to grant it separately. -->

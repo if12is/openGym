@@ -11,6 +11,8 @@ import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.HeartRateRecord
+import androidx.health.connect.client.records.HeartRateVariabilityRmssdRecord
+import androidx.health.connect.client.records.OxygenSaturationRecord
 import androidx.health.connect.client.records.Record
 import androidx.health.connect.client.records.RestingHeartRateRecord
 import androidx.health.connect.client.records.SleepSessionRecord
@@ -32,6 +34,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.time.Instant
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * Health Connect bridge — read only.
@@ -56,15 +61,33 @@ import java.time.Instant
 @CapacitorPlugin(name = "Health")
 class HealthPlugin : Plugin() {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    // IO, not Main: HealthConnectClient.getOrCreate() binds to a provider service
+    // and on Honor/Huawei that bind can sit forever. Doing it on the UI thread
+    // (or blocking the Capacitor handler until it returns) is why the connect
+    // sheet used to freeze on "Waiting for Health Connect…" with no permission
+    // picker — JS never got a resolve/reject.
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     // A page bigger than this is refused by the platform. Heart rate over a full
     // day comfortably exceeds one page, so every read below follows pageToken.
     private val pageSize = 1000
 
-    private val client: HealthConnectClient? by lazy {
-        try { HealthConnectClient.getOrCreate(context) } catch (e: Throwable) { null }
+    // Honor/Huawei: getOrCreate can hang even when getSdkStatus says AVAILABLE,
+    // because Health Sync's store is present but the Google client bind isn't.
+    // kotlinx withTimeout cannot abort a blocking bind, so this uses Future.get.
+    private fun <T> runTimed(ms: Long, block: () -> T): T? {
+        val exec = Executors.newSingleThreadExecutor()
+        return try {
+            exec.submit(Callable { block() }).get(ms, TimeUnit.MILLISECONDS)
+        } catch (e: Throwable) {
+            null
+        } finally {
+            exec.shutdownNow()
+        }
     }
+
+    private fun clientOrNull(): HealthConnectClient? =
+        runTimed(8_000) { HealthConnectClient.getOrCreate(context) }
 
     /** JS scope names → Health Connect permission strings. */
     private fun permissionFor(scope: String): String? = when (scope) {
@@ -75,12 +98,15 @@ class HealthPlugin : Plugin() {
         "READ_ACTIVE_CALORIES_BURNED" -> HealthPermission.getReadPermission(ActiveCaloriesBurnedRecord::class)
         "READ_TOTAL_CALORIES_BURNED" -> HealthPermission.getReadPermission(TotalCaloriesBurnedRecord::class)
         "READ_EXERCISE" -> HealthPermission.getReadPermission(ExerciseSessionRecord::class)
+        "READ_OXYGEN_SATURATION" -> HealthPermission.getReadPermission(OxygenSaturationRecord::class)
+        "READ_HEART_RATE_VARIABILITY" -> HealthPermission.getReadPermission(HeartRateVariabilityRmssdRecord::class)
         else -> null
     }
 
     private fun scopeNames(): List<String> = listOf(
         "READ_HEART_RATE", "READ_RESTING_HEART_RATE", "READ_SLEEP", "READ_STEPS",
-        "READ_ACTIVE_CALORIES_BURNED", "READ_TOTAL_CALORIES_BURNED", "READ_EXERCISE"
+        "READ_ACTIVE_CALORIES_BURNED", "READ_TOTAL_CALORIES_BURNED", "READ_EXERCISE",
+        "READ_OXYGEN_SATURATION", "READ_HEART_RATE_VARIABILITY"
     )
 
     private fun requestedScopes(call: PluginCall): List<String> {
@@ -115,7 +141,7 @@ class HealthPlugin : Plugin() {
         filter: TimeRangeFilter,
         origins: Set<DataOrigin>
     ): List<T> {
-        val c = client ?: return emptyList()
+        val c = clientOrNull() ?: return emptyList()
         val out = mutableListOf<T>()
         var token: String? = null
         do {
@@ -153,22 +179,31 @@ class HealthPlugin : Plugin() {
 
     @PluginMethod
     fun isAvailable(call: PluginCall) {
-        val ret = JSObject()
-        when (HealthConnectClient.getSdkStatus(context)) {
-            HealthConnectClient.SDK_AVAILABLE -> {
-                ret.put("available", client != null)
-                if (client == null) ret.put("reason", "init-failed")
-            }
-            HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> {
+        scope.launch {
+            val ret = JSObject()
+            val status = runTimed(8_000) { HealthConnectClient.getSdkStatus(context) }
+            if (status == null) {
                 ret.put("available", false)
-                ret.put("reason", "update-required")
+                ret.put("reason", "timeout")
+                call.resolve(ret)
+                return@launch
             }
-            else -> {
-                ret.put("available", false)
-                ret.put("reason", "not-installed")
+            when (status) {
+                // Do not call getOrCreate here. Status is enough to know the
+                // permission picker can be launched; binding the client is a
+                // later step and is what hung on Honor.
+                HealthConnectClient.SDK_AVAILABLE -> ret.put("available", true)
+                HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> {
+                    ret.put("available", false)
+                    ret.put("reason", "update-required")
+                }
+                else -> {
+                    ret.put("available", false)
+                    ret.put("reason", "not-installed")
+                }
             }
+            call.resolve(ret)
         }
-        call.resolve(ret)
     }
 
     @PluginMethod
@@ -200,7 +235,7 @@ class HealthPlugin : Plugin() {
     @PluginMethod
     fun checkAuthorization(call: PluginCall) {
         run(call) {
-            val c = client ?: return@run JSObject().put("granted", JSArray())
+            val c = clientOrNull() ?: return@run JSObject().put("granted", JSArray())
             val held = c.permissionController.getGrantedPermissions()
             grantedResult(held)
         }
@@ -208,9 +243,6 @@ class HealthPlugin : Plugin() {
 
     @PluginMethod
     fun requestAuthorization(call: PluginCall) {
-        val c = client
-        if (c == null) { call.reject("unavailable"); return }
-
         val wanted = requestedScopes(call).ifEmpty { scopeNames() }
         val perms = wanted.mapNotNull { permissionFor(it) }.toMutableSet()
         // Asked for in the same sheet as the data types rather than sending the
@@ -219,21 +251,58 @@ class HealthPlugin : Plugin() {
         if (call.getBoolean("requestHistoryAccess", false) == true) {
             perms.add(HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY)
         }
+        // Do not wait for getOrCreate — the picker is an Intent, it does not
+        // need a bound client. Binding first is what left the JS promise hanging.
+        launchPicker(call, perms)
+    }
 
-        val intent = PermissionController.createRequestPermissionResultContract()
-            .createIntent(context, perms)
-        startActivityForResult(call, intent, "permissionResult")
+    private fun launchPicker(call: PluginCall, perms: Set<String>, droppedHistory: Boolean = false) {
+        val act = activity
+        if (act == null) { call.reject("no-activity"); return }
+        val intent = try {
+            PermissionController.createRequestPermissionResultContract()
+                .createIntent(act, perms)
+        } catch (e: Throwable) {
+            if (!droppedHistory && perms.contains(HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY)) {
+                launchPicker(call, perms - HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY, true)
+                return
+            }
+            call.reject("no-picker")
+            return
+        }
+        // Capacitor plugin methods run on a background HandlerThread.
+        // ActivityResultLauncher.launch() must be called on the main thread;
+        // Honor/Huawei otherwise swallow the start and never deliver a result.
+        act.runOnUiThread {
+            try {
+                startActivityForResult(call, intent, "permissionResult")
+            } catch (e: Throwable) {
+                if (!droppedHistory && perms.contains(HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY)) {
+                    launchPicker(call, perms - HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY, true)
+                    return@runOnUiThread
+                }
+                call.reject("no-picker")
+            }
+        }
     }
 
     @ActivityCallback
-    private fun permissionResult(call: PluginCall?, result: ActivityResult) {
+    fun permissionResult(call: PluginCall?, result: ActivityResult) {
         if (call == null) return
-        // The contract's own result is parsed inconsistently across provider
-        // versions; asking the controller what is actually held is the answer
-        // that matches what the next read will be allowed to do.
         run(call) {
-            val c = client ?: return@run JSObject().put("granted", JSArray())
-            grantedResult(c.permissionController.getGrantedPermissions())
+            val fromIntent = runCatching {
+                PermissionController.createRequestPermissionResultContract()
+                    .parseResult(result.resultCode, result.data)
+            }.getOrDefault(emptySet())
+            // The contract's extras are not the same on every provider; if the
+            // client bind works, trust that. If it still hangs (Honor), fall
+            // back to whatever the picker itself reported so JS is not stuck.
+            val fromClient = try {
+                clientOrNull()?.permissionController?.getGrantedPermissions()
+            } catch (e: Throwable) {
+                null
+            }
+            grantedResult(fromClient ?: fromIntent)
         }
     }
 
@@ -286,6 +355,37 @@ class HealthPlugin : Plugin() {
         }
     }
 
+    /**
+     * Blood oxygen and heart-rate variability, in one call.
+     *
+     * Both are night-time spot readings on a wrist device rather than continuous
+     * measurements, so they come back as a small list and are only ever used as
+     * a trend. Paired here because nothing in the app wants one without the
+     * other, and one round trip beats two.
+     */
+    @PluginMethod
+    fun readRecovery(call: PluginCall) {
+        val filter = range(call) ?: run { call.reject("bad-range"); return }
+        val origins = originsOf(call)
+        run(call) {
+            val spo2 = JSArray()
+            readAll<OxygenSaturationRecord>(filter, origins).forEach { rec ->
+                val o = JSObject()
+                o.put("t", rec.time.toEpochMilli())
+                o.put("pct", rec.percentage.value)
+                spo2.put(o)
+            }
+            val hrv = JSArray()
+            readAll<HeartRateVariabilityRmssdRecord>(filter, origins).forEach { rec ->
+                val o = JSObject()
+                o.put("t", rec.time.toEpochMilli())
+                o.put("ms", rec.heartRateVariabilityMillis)
+                hrv.put(o)
+            }
+            JSObject().put("spo2", spo2).put("hrv", hrv)
+        }
+    }
+
     @PluginMethod
     fun readSleep(call: PluginCall) {
         val filter = range(call) ?: run { call.reject("bad-range"); return }
@@ -315,7 +415,7 @@ class HealthPlugin : Plugin() {
         val filter = range(call) ?: run { call.reject("bad-range"); return }
         val origins = originsOf(call)
         run(call) {
-            val c = client
+            val c = clientOrNull()
             val out = JSArray()
             readAll<ExerciseSessionRecord>(filter, origins).forEach { rec ->
                 val o = JSObject()
@@ -351,7 +451,7 @@ class HealthPlugin : Plugin() {
         } ?: listOf("steps", "activeCalories", "totalCalories")
 
         run(call) {
-            val c = client ?: return@run JSObject()
+            val c = clientOrNull() ?: return@run JSObject()
             val metrics = mutableSetOf<AggregateMetric<*>>()
             if (wanted.contains("steps")) metrics.add(StepsRecord.COUNT_TOTAL)
             if (wanted.contains("activeCalories")) metrics.add(ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL)

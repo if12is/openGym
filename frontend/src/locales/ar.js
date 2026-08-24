@@ -679,6 +679,8 @@ export default {
   'Health Connect needs updating before it can share data.': 'Health Connect محتاج تحديث قبل ما يشارك البيانات.',
   'Heart rate wasn’t granted, so there is nothing to read. You can change it in Health Connect.': 'صلاحية ضربات القلب مااتوافقش عليها، فمفيش حاجة نقراها. تقدر تغيّرها من Health Connect.',
   'This build can’t reach Health Connect. Update the app and try again.': 'النسخة دي مابتوصلش لـ Health Connect. حدّث التطبيق وجرّب تاني.',
+  'Health Connect didn’t respond. Try again, or open it yourself and allow Gemak.': 'Health Connect ما ردّش. جرّب تاني، أو افتحه بنفسك واسمح لچيمك.',
+  'The permission screen didn’t open. Allow Gemak from Health Connect, then try again.': 'شاشة الأذن ما فتحتش. اسمح لچيمك من Health Connect، وبعدين جرّب تاني.',
   'Open Health Connect': 'افتح Health Connect',
   'Manage in Health Connect': 'إدارة من Health Connect',
 

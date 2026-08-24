@@ -60,6 +60,19 @@ export async function readRestingHeartRate(start, end) {
   return { ok: true, samples: (r.samples || []).filter(s => s && s.bpm > 0) }
 }
 
+// Blood oxygen and heart-rate variability together — nothing wants one without
+// the other, and one round trip beats two. Both are overnight spot readings on
+// a wrist device, so they are only ever reported as a trend.
+export async function readRecovery(start, end) {
+  const r = await call('readRecovery', { start, end, ...originFilter() })
+  if (!r.ok) return r
+  return {
+    ok: true,
+    spo2: (r.spo2 || []).filter(s => s && s.pct > 0),
+    hrv: (r.hrv || []).filter(s => s && s.ms > 0),
+  }
+}
+
 export async function readSleep(start, end) {
   const r = await call('readSleep', { start, end, ...originFilter() })
   if (!r.ok) return r

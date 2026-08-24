@@ -37,18 +37,24 @@ function SetupSheet({ close, toast }) {
 
   const go = async () => {
     setBusy(true)
-    const res = await connectWatch('Huawei Watch Fit 4')
-    setBusy(false)
-    if (res.ok) {
-      close()
-      toast(t('Watch connected'))
-      // Fill the card with something immediately — an empty "connected" state
-      // reads like it didn't work.
-      syncNowAsync()
-      rememberOrigins()
-      return
+    setProblem(null)
+    try {
+      const res = await connectWatch('Huawei Watch Fit 4')
+      if (res.ok) {
+        close()
+        toast(t('Watch connected'))
+        // Fill the card with something immediately — an empty "connected" state
+        // reads like it didn't work.
+        syncNowAsync()
+        rememberOrigins()
+        return
+      }
+      setProblem(res.reason)
+    } catch (e) {
+      setProblem('timeout')
+    } finally {
+      setBusy(false)
     }
-    setProblem(res.reason)
   }
 
   return <>
@@ -89,6 +95,24 @@ function SetupSheet({ close, toast }) {
     )}
     {problem === 'no-plugin' && (
       <div className="wnote"><Icon name="info" /><div>{t('This build can’t reach Health Connect. Update the app and try again.')}</div></div>
+    )}
+    {problem === 'timeout' && (
+      <div className="wnote">
+        <Icon name="info" />
+        <div>
+          <div>{t('Health Connect didn’t respond. Try again, or open it yourself and allow Gemak.')}</div>
+          <Button size="sm" variant="plain" onClick={openHealthConnectSettings}>{t('Open Health Connect')}</Button>
+        </div>
+      </div>
+    )}
+    {problem === 'no-picker' && (
+      <div className="wnote">
+        <Icon name="info" />
+        <div>
+          <div>{t('The permission screen didn’t open. Allow Gemak from Health Connect, then try again.')}</div>
+          <Button size="sm" variant="plain" onClick={openHealthConnectSettings}>{t('Open Health Connect')}</Button>
+        </div>
+      </div>
     )}
 
     <div style={{ height: 6 }} />
