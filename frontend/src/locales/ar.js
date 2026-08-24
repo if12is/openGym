@@ -798,4 +798,16 @@ export default {
   '{0} days read': 'اتقرا {0} يوم',
   'Stopped where the data runs out — {0} days read': 'وقفنا عند آخر البيانات — اتقرا {0} يوم',
   'Could not read earlier days': 'مقدرناش نقرا الأيام اللي فاتت',
+
+  // --- recovery map ---
+  // Not 'Recovery' — that key is already the lowest heart-rate zone.
+  'Muscle recovery': 'استشفاء العضلات',
+  'by last session and sleep since': 'حسب آخر جلسة والنوم بعدها',
+  'Ready': 'جاهزة',
+  'Still recovering': 'لسه بتستشفي',
+  'Give these another day': 'سيبهم يوم كمان',
+  'Everything you trained this week has had time to recover.': 'كل اللي درّبته الأسبوع ده أخد وقته واستشفى.',
+  'Short nights since — these are taking longer than usual.': 'الليالي بعدها كانت قصيرة — دول واخدين وقت أطول من المعتاد.',
+  'ready': 'جاهزة',
+  '{0}% · {1}h since {2} sets': '{0}٪ · بقالها {1} س من {2} مجموعة',
 }

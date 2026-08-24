@@ -820,6 +820,19 @@ html[dir="rtl"] .seg-sel{
 .bm-m.l3{fill:color-mix(in srgb,var(--acc) 78%,var(--bm-base))}
 .bm-m.l4{fill:var(--acc)}
 .bm-m.sel{stroke:var(--label);stroke-width:7}
+/* Recovery ramp. Same five steps, different question: base = ready to train,
+   deepening warm = still recovering. Orange rather than red at the top — the map
+   is telling you to pick something else today, not that anything is wrong. */
+.bm-rec .bm-m.l1{fill:color-mix(in srgb,var(--yellow) 26%,var(--bm-base))}
+.bm-rec .bm-m.l2{fill:color-mix(in srgb,var(--orange) 42%,var(--bm-base))}
+.bm-rec .bm-m.l3{fill:color-mix(in srgb,var(--orange) 68%,var(--bm-base))}
+.bm-rec .bm-m.l4{fill:var(--orange)}
+/* Legend swatches matching the recovery ramp above. */
+.hm-c.rl0{background:color-mix(in srgb,var(--label) 11%,var(--surface))}
+.hm-c.rl1{background:color-mix(in srgb,var(--yellow) 26%,color-mix(in srgb,var(--label) 11%,var(--surface)))}
+.hm-c.rl2{background:color-mix(in srgb,var(--orange) 42%,color-mix(in srgb,var(--label) 11%,var(--surface)))}
+.hm-c.rl3{background:color-mix(in srgb,var(--orange) 68%,color-mix(in srgb,var(--label) 11%,var(--surface)))}
+.hm-c.rl4{background:var(--orange)}
 .bodymap.tappable .bm-m{cursor:pointer}
 /* A hairline in the surface colour separates neighbouring muscles; the artwork has no
    outline path of its own, so without this the body reads as one flat blob. */

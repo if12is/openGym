@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest'
 import {
   lastDays, estimateHrMax, computeBaselines, trainingLoad,
   readiness, overloadFlag, hrRecovery, suggestRest, pearson, sleepVsVolume, prContext,
+  muscleRecovery, recoveryLevels, RECOVERY_MAX_H,
 } from './health-insights.js'
+import { isoOf } from './format.js'
 
 const at = (y, m, d, hh = 0, mm = 0) => +new Date(y, m - 1, d, hh, mm, 0, 0)
 const TODAY = '2026-08-24'
@@ -155,6 +157,74 @@ describe('overload flag', () => {
 
   it('needs a day to judge', () => {
     expect(overloadFlag(null, base, {}, [])).toBeNull()
+  })
+})
+
+describe('muscle recovery', () => {
+  const NOW = at(2026, 8, 24, 18, 0)
+  const base = { sleep14: 420 }
+  const hoursAgo = h => NOW - h * 3600000
+
+  it('is fully recovered once enough time has passed', () => {
+    const r = muscleRecovery({ chest: { sets: 6, at: hoursAgo(96) } }, {}, base, NOW)
+    expect(r.chest.pct).toBe(100)
+  })
+
+  it('is barely started right after a session', () => {
+    const r = muscleRecovery({ chest: { sets: 6, at: hoursAgo(2) } }, {}, base, NOW)
+    expect(r.chest.pct).toBeLessThan(10)
+    expect(r.chest.sets).toBe(6)
+    expect(r.chest.hoursSince).toBe(2)
+  })
+
+  // More work needs more time — 20 hard sets is not the same ask as 2.
+  it('gives a heavier session a longer window', () => {
+    const light = muscleRecovery({ chest: { sets: 2, at: hoursAgo(30) } }, {}, base, NOW)
+    const heavy = muscleRecovery({ chest: { sets: 14, at: hoursAgo(30) } }, {}, base, NOW)
+    expect(light.chest.pct).toBeGreaterThan(heavy.chest.pct)
+  })
+
+  it('caps the window so nothing stays cooked forever', () => {
+    const r = muscleRecovery({ chest: { sets: 99, at: hoursAgo(RECOVERY_MAX_H + 1) } }, {}, base, NOW)
+    expect(r.chest.pct).toBe(100)
+  })
+
+  // The reason this belongs to the watch: the same 30 hours are not the same
+  // 30 hours if they were slept through badly.
+  it('slows recovery after short nights', () => {
+    const days = {}
+    for (let i = 0; i < 4; i++) {
+      const d = new Date(NOW); d.setDate(d.getDate() - i)
+      days[isoOf(d)] = { sleepMin: 280 }
+    }
+    const rested = muscleRecovery({ chest: { sets: 8, at: hoursAgo(40) } }, {}, base, NOW)
+    const tired = muscleRecovery({ chest: { sets: 8, at: hoursAgo(40) } }, days, base, NOW)
+    expect(tired.chest.pct).toBeLessThan(rested.chest.pct)
+    expect(tired.chest.slowedBySleep).toBe(true)
+    expect(rested.chest.slowedBySleep).toBe(false)
+  })
+
+  it('gives no credit for sleeping more than usual', () => {
+    const days = {}
+    for (let i = 0; i < 4; i++) {
+      const d = new Date(NOW); d.setDate(d.getDate() - i)
+      days[isoOf(d)] = { sleepMin: 600 }
+    }
+    const long = muscleRecovery({ chest: { sets: 8, at: hoursAgo(30) } }, days, base, NOW)
+    const normal = muscleRecovery({ chest: { sets: 8, at: hoursAgo(30) } }, {}, base, NOW)
+    expect(long.chest.pct).toBe(normal.chest.pct)
+  })
+
+  it('ignores entries with no timestamp', () => {
+    expect(muscleRecovery({ chest: { sets: 6 } }, {}, base, NOW)).toEqual({})
+    expect(muscleRecovery(null, {}, base, NOW)).toEqual({})
+  })
+
+  it('maps percentages onto shading steps, ready being unshaded', () => {
+    const lv = recoveryLevels({
+      a: { pct: 100 }, b: { pct: 80 }, c: { pct: 60 }, d: { pct: 30 }, e: { pct: 5 },
+    })
+    expect(lv).toEqual({ a: 0, b: 1, c: 2, d: 3, e: 4 })
   })
 })
 

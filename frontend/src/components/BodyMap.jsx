@@ -49,12 +49,18 @@ function View({ view, levels, onMuscle, selected }) {
  * `load` is effective sets per muscle (see lib/muscles.js); shading is relative to
  * the hardest-worked muscle in that same load, so it always reads as a balance.
  */
-export default function BodyMap({ load = {}, body = 'male', onMuscle, selected, className = '' }) {
+// `levels` overrides the shading when a caller has already worked out its own
+// 0–4 per muscle — recovery does, because "how recovered" is not a rescaling of
+// "how much work", it is a different question over the same anatomy.
+// `tone` switches the colour ramp with it: accent means training, warm means
+// still recovering. Two ramps rather than one, because a red chest and a gold
+// chest have to be readable as different claims at a glance.
+export default function BodyMap({ load = {}, levels: levelsIn, tone = 'load', body = 'male', onMuscle, selected, className = '' }) {
   const paths = useBodyPaths()
-  const levels = levelsOf(load)
+  const levels = levelsIn || levelsOf(load)
   const g = paths && (paths[body] || paths.male)
   return (
-    <div className={'bodymap ' + className}>
+    <div className={'bodymap' + (tone === 'recovery' ? ' bm-rec' : '') + ' ' + className}>
       {g ? <>
         <View view={g.front} levels={levels} onMuscle={onMuscle} selected={selected} />
         <View view={g.back} levels={levels} onMuscle={onMuscle} selected={selected} />

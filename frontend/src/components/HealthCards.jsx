@@ -15,8 +15,10 @@ import { useUI } from '../store/useUI.js'
 import Icon from './Icon.jsx'
 import SessionChart, { ZoneBar, ZONE_COLORS, ZONE_NAMES } from './SessionChart.jsx'
 import { getHealth, subscribeHealth, getConn } from '../lib/health-store.js'
-import { readiness, overloadFlag, trainingLoad, sleepVsVolume, suggestRest, prContext } from '../lib/health-insights.js'
+import { readiness, overloadFlag, trainingLoad, sleepVsVolume, suggestRest, prContext, muscleRecovery, recoveryLevels } from '../lib/health-insights.js'
+import { loadOfWorkouts, MUSCLE_NAME } from '../lib/muscles.js'
 import { useStore } from '../store/useStore.js'
+import BodyMap from './BodyMap.jsx'
 import LineChart from './LineChart.jsx'
 import { Segmented } from './ui.jsx'
 import { sessionSamples, hrReserve, ZONE_EDGES } from '../lib/health-match.js'
@@ -388,6 +390,96 @@ export function SessionBlock({ w }) {
       ))}
     </>}
   </>
+}
+
+/* ============================ recovery map ============================ */
+
+// The last time each muscle was worked, and how much. Walks backwards so the
+// first hit per muscle is the most recent one, and stops at the window edge —
+// anything older than a week is recovered by any measure and does not need
+// looking up.
+export function lastLoadsOf(workouts, windowDays = 7, now = Date.now()) {
+  const out = {}
+  const cutoff = now - windowDays * 86400000
+  for (let i = (workouts || []).length - 1; i >= 0; i--) {
+    const w = workouts[i]
+    const at = w.start || new Date(w.d).getTime()
+    if (!at || at < cutoff) break
+    const load = loadOfWorkouts([w])
+    for (const [m, sets] of Object.entries(load)) {
+      if (sets > 0 && !out[m]) out[m] = { sets, at }
+    }
+  }
+  return out
+}
+
+/**
+ * Which muscles are still cooked.
+ *
+ * The training log already knows what was worked and when. What it could never
+ * know is whether the hours since were spent recovering — eight hours of sleep
+ * and four hours of sleep are not the same day. That is the whole reason this
+ * card needs the watch and the muscle-balance card next to it does not.
+ */
+export function MuscleRecoveryCard({ S }) {
+  const health = useHealth()
+  const [sel, setSel] = useState(null)
+  if (!MOBILE || !isLinked()) return null
+
+  const lastLoads = lastLoadsOf(S.workouts || [])
+  if (!Object.keys(lastLoads).length) return null
+
+  const rec = muscleRecovery(lastLoads, health.days, health.base)
+  const levels = recoveryLevels(rec)
+  const cooked = Object.entries(rec).filter(([, r]) => r.pct < 75)
+    .sort((a, b) => a[1].pct - b[1].pct)
+  const selRec = sel ? rec[sel] : null
+
+  return <div className="card">
+    <div className="row between" style={{ marginBottom: 8 }}>
+      <h2 style={{ margin: 0 }}>{t('Muscle recovery')} <span className="dim" style={{ textTransform: 'none', letterSpacing: 0 }}>· {t('by last session and sleep since')}</span></h2>
+    </div>
+
+    <BodyMap className="tappable" levels={levels} tone="recovery" body={S.body}
+      selected={sel} onMuscle={m => setSel(s => (s === m ? null : m))} />
+
+    <div className="hm-legend">
+      {t('Ready')} <div className="hm-c rl0" /><div className="hm-c rl1" /><div className="hm-c rl2" />
+      <div className="hm-c rl3" /><div className="hm-c rl4" /> {t('Still recovering')}
+    </div>
+
+    {selRec ? (
+      <div className="mrow" style={{ borderTop: 'var(--hair) solid var(--sep)', marginTop: 4, paddingTop: 10 }}>
+        <span className="nm"><b>{t(MUSCLE_NAME[sel])}</b></span>
+        <span className="v">
+          {selRec.pct >= 100
+            ? t('ready')
+            : t('{0}% · {1}h since {2} sets', selRec.pct, selRec.hoursSince, selRec.sets)}
+        </span>
+      </div>
+    ) : cooked.length ? <>
+      <h4 className="sec" style={{ marginTop: 12 }}>{t('Give these another day')}</h4>
+      {cooked.slice(0, 4).map(([m, r]) => (
+        <div className="mrow" key={m}>
+          <span className="nm">{t(MUSCLE_NAME[m])}</span>
+          <span className="bar"><i style={{ width: r.pct + '%', background: 'var(--orange)' }} /></span>
+          <span className="v">{r.pct}%</span>
+        </div>
+      ))}
+      {/* Only mentioned when it actually changed the answer — otherwise it is
+          another number on a screen that already has plenty. */}
+      {cooked.some(([, r]) => r.slowedBySleep) && (
+        <div className="small muted row" style={{ gap: 6, marginTop: 8 }}>
+          <Icon name="sleep" style={{ fontSize: 13 }} />
+          {t('Short nights since — these are taking longer than usual.')}
+        </div>
+      )}
+    </> : (
+      <div className="muted small" style={{ marginTop: 10 }}>
+        {t('Everything you trained this week has had time to recover.')}
+      </div>
+    )}
+  </div>
 }
 
 /* ============================ right after you finish ============================ */

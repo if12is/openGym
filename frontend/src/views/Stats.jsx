@@ -10,7 +10,7 @@ import LineChart from '../components/LineChart.jsx'
 import Heatmap from '../components/Heatmap.jsx'
 import Icon from '../components/Icon.jsx'
 import BodyMap, { BodyMapLegend } from '../components/BodyMap.jsx'
-import { HealthStatsCard } from '../components/HealthCards.jsx'
+import { HealthStatsCard, MuscleRecoveryCard } from '../components/HealthCards.jsx'
 import { loadOfWorkouts, rankOf, MUSCLE_NAME } from '../lib/muscles.js'
 import { e1rmSeries, best1RM } from '../lib/onerm.js'
 import {
@@ -212,6 +212,10 @@ export default function Stats() {
     </div>
 
     {S.workouts.length > 0 && <MuscleBalance S={S} />}
+    {/* Right under the balance map, because it is the same anatomy asked a
+        different question: that one is "where did the work go", this one is
+        "what is ready to take more". */}
+    <MuscleRecoveryCard S={S} />
     {anyEffort && <EffortCard S={S} />}
     {/* Renders nothing unless a watch is linked and has been feeding it for a
         while — these are month-scale readings, not day-scale ones. */}
