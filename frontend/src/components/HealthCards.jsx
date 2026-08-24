@@ -15,7 +15,7 @@ import { useUI } from '../store/useUI.js'
 import Icon from './Icon.jsx'
 import SessionChart, { ZoneBar, ZONE_COLORS, ZONE_NAMES } from './SessionChart.jsx'
 import { getHealth, subscribeHealth, getConn } from '../lib/health-store.js'
-import { readiness, overloadFlag, trainingLoad, sleepVsVolume, suggestRest, prContext, muscleRecovery, recoveryLevels, exerciseCost } from '../lib/health-insights.js'
+import { readiness, overloadFlag, trainingLoad, sleepVsVolume, suggestRest, prContext, muscleRecovery, recoveryLevels, exerciseCost, energyBalance } from '../lib/health-insights.js'
 import { loadOfWorkouts, MUSCLE_NAME } from '../lib/muscles.js'
 import { EXIDX } from '../lib/exercises.js'
 import { useStore } from '../store/useStore.js'
@@ -602,6 +602,58 @@ export function ExerciseCostCard({ S }) {
     </div>
     <p className="dim small" style={{ marginTop: 10, lineHeight: 1.45 }}>
       {t('Put the expensive ones early. The percentage is share of your heart-rate reserve, so it compares fairly across people and days.')}
+    </p>
+  </div>
+}
+
+/* ============================ energy balance ============================ */
+
+// The watch estimates what you burn; the scale records what that did to you.
+// The gap between them is what you ate — and it is the one part neither device
+// can see alone, which is why this card only exists once both are feeding it.
+export function EnergyBalanceCard({ S }) {
+  const health = useHealth()
+  if (!MOBILE || !isLinked()) return null
+
+  const e = energyBalance(health.days, S.bodyweight, S.unit)
+  if (!e.enough) {
+    // Only worth showing the empty state once something is actually accumulating,
+    // otherwise it is a card that exists to say nothing.
+    if (!e.weighIns && !e.burnDays) return null
+    return <div className="card">
+      <h2>{t('Energy balance')}</h2>
+      <div className="muted small">
+        {t('Needs about four weigh-ins and a week of watch data — {0} and {1} so far.',
+          t('{0} weigh-ins', e.weighIns), t('{0} days', e.burnDays))}
+      </div>
+    </div>
+  }
+
+  const sign = e.balance > 0 ? '+' : ''
+  const color = e.direction === 'steady' ? 'var(--label)' : e.direction === 'surplus' ? 'var(--green)' : 'var(--orange)'
+
+  return <div className="card">
+    <h2>{t('Energy balance')} <span className="dim" style={{ textTransform: 'none', letterSpacing: 0 }}>· {t('last 4 weeks')}</span></h2>
+
+    <div className="row" style={{ gap: 8, alignItems: 'baseline', marginTop: 6 }}>
+      <div className="big" style={{ color }}>{sign}{e.balance}</div>
+      <span className="muted">{t('kcal / day')}</span>
+      <span className="tag" style={{ marginInlineStart: 'auto', color, background: `color-mix(in srgb,${color} 16%,transparent)` }}>
+        {t(e.direction === 'steady' ? 'Holding steady' : e.direction === 'surplus' ? 'Gaining' : 'Losing')}
+      </span>
+    </div>
+
+    <div className="hstats" style={{ marginTop: 12 }}>
+      <div className="hstat"><div className="l"><Icon name="flame" />{t('Burning')}</div>
+        <div className="v">{e.burn}<small>{t('kcal')}</small></div></div>
+      <div className="hstat"><div className="l"><Icon name="clipboard" />{t('Eating (est.)')}</div>
+        <div className="v">{e.intake}<small>{t('kcal')}</small></div></div>
+      <div className="hstat"><div className="l"><Icon name="scale" />{t('Per week')}</div>
+        <div className="v">{e.perWeek > 0 ? '+' : ''}{e.perWeek}<small>{S.unit}</small></div></div>
+    </div>
+
+    <p className="dim small" style={{ marginTop: 10, lineHeight: 1.45 }}>
+      {t('Worked back from your weight trend and what the watch says you burn — no food logging involved. Treat it as a direction, not a calorie count: water weight moves the scale and a watch only estimates resting burn.')}
     </p>
   </div>
 }

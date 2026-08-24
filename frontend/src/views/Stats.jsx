@@ -10,7 +10,7 @@ import LineChart from '../components/LineChart.jsx'
 import Heatmap from '../components/Heatmap.jsx'
 import Icon from '../components/Icon.jsx'
 import BodyMap, { BodyMapLegend } from '../components/BodyMap.jsx'
-import { HealthStatsCard, MuscleRecoveryCard, ExerciseCostCard } from '../components/HealthCards.jsx'
+import { HealthStatsCard, MuscleRecoveryCard, ExerciseCostCard, EnergyBalanceCard } from '../components/HealthCards.jsx'
 import { loadOfWorkouts, rankOf, MUSCLE_NAME } from '../lib/muscles.js'
 import { e1rmSeries, best1RM } from '../lib/onerm.js'
 import {
@@ -220,6 +220,10 @@ export default function Stats() {
     {/* Renders nothing unless a watch is linked and has been feeding it for a
         while — these are month-scale readings, not day-scale ones. */}
     <ExerciseCostCard S={S} />
+    {/* Directly after the body-weight chart's neighbourhood: it is the same
+        scale readings, turned into the question people actually weigh
+        themselves to answer. */}
+    <EnergyBalanceCard S={S} />
     <HealthStatsCard S={S} />
 
     <div className="cols">

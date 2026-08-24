@@ -827,4 +827,19 @@ export default {
   'peak pulse at the set': 'ذروة النبض عند السِت',
   'Built from when each set was ticked against what your pulse was doing. A few more logged sessions and the ranking appears.': 'بيتبني من وقت ما بتعلّم على كل سِت مقابل نبضك ساعتها. كام جلسة كمان والترتيب هيظهر.',
   'Put the expensive ones early. The percentage is share of your heart-rate reserve, so it compares fairly across people and days.': 'حطّ التقيلة بدري. النسبة دي من احتياطي نبضك، فبتقارن بعدل بين الأيام وبين الناس.',
+
+  // --- energy balance (weight trend × watch burn = intake, no food logging) ---
+  'Energy balance': 'ميزان الطاقة',
+  'last 4 weeks': 'آخر ٤ أسابيع',
+  'kcal / day': 'سعرة / يوم',
+  'Holding steady': 'ثابت',
+  'Gaining': 'بتزيد',
+  'Losing': 'بتنزل',
+  'Burning': 'بتحرق',
+  'Eating (est.)': 'بتاكل (تقديري)',
+  'Per week': 'في الأسبوع',
+  'Needs about four weigh-ins and a week of watch data — {0} and {1} so far.': 'محتاج حوالي ٤ قياسات وزن وأسبوع بيانات من الساعة — لحد دلوقتي {0} و{1}.',
+  '{0} weigh-ins': '{0} قياس وزن',
+  '{0} days': '{0} يوم',
+  'Worked back from your weight trend and what the watch says you burn — no food logging involved. Treat it as a direction, not a calorie count: water weight moves the scale and a watch only estimates resting burn.': 'محسوبة عكسياً من اتجاه وزنك ومن اللي الساعة بتقول إنك بتحرقه — من غير ما تسجّل أكل خالص. خدها كاتجاه مش كعدد سعرات: مية الجسم بتحرّك الميزان، والساعة بتقدّر حرق الراحة تقدير.',
 }

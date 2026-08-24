@@ -321,6 +321,75 @@ export function exerciseCost(workouts, sessions, hrMax, rhr) {
     .sort((x, y) => y.avgPeak - x.avgPeak)
 }
 
+/* ============================ energy balance ============================ */
+
+// Roughly what a kilo of body mass is worth in calories. A textbook figure, and
+// treated as one: it is here to turn a weight trend into an order of magnitude,
+// not to promise anyone a number to the calorie.
+export const KCAL_PER_KG = 7700
+export const KCAL_PER_LB = 3500
+
+// Least squares over (time, weight). A first-vs-last reading is at the mercy of
+// which two days happened to have a weigh-in, and body weight swings a kilo on
+// water alone — the slope of everything in the window is far steadier.
+function weightTrend(points) {
+  const n = points.length
+  if (n < 2) return null
+  const mx = mean(points.map(p => p.t)), my = mean(points.map(p => p.w))
+  let num = 0, den = 0
+  for (const p of points) { const dx = p.t - mx; num += dx * (p.w - my); den += dx * dx }
+  if (!den) return null
+  return num / den            // weight units per millisecond
+}
+
+/**
+ * What you have been eating, without ever asking you to log a meal.
+ *
+ * The watch estimates what you burn; the scale records what that did to you.
+ * The gap between them is intake — and the gap is the only part neither device
+ * can see on its own. That is the whole trick, and it is why this needs both.
+ *
+ * Returns null rather than a shaky number when the window is too thin: two
+ * weigh-ins a fortnight apart is a rumour, not a trend.
+ */
+export function energyBalance(days, bodyweight, unit = 'kg', windowDays = 28, now = Date.now()) {
+  const from = now - windowDays * 86400000
+  const points = (bodyweight || [])
+    .map(b => ({ t: b.t || new Date(b.d).getTime(), w: b.w }))
+    .filter(p => p.t >= from && p.w > 0)
+    .sort((a, b) => a.t - b.t)
+
+  const burns = Object.entries(days || {})
+    .filter(([iso, d]) => d.kcalTotal && new Date(iso + 'T12:00:00').getTime() >= from)
+    .map(([, d]) => d.kcalTotal)
+
+  // Both halves are required: a weight trend with no burn figure cannot become
+  // an intake, and a burn figure with no trend is just a number.
+  if (points.length < 4 || burns.length < 7) {
+    return { enough: false, weighIns: points.length, burnDays: burns.length }
+  }
+
+  const slope = weightTrend(points)
+  if (slope == null) return { enough: false, weighIns: points.length, burnDays: burns.length }
+
+  const perKg = unit === 'lb' ? KCAL_PER_LB : KCAL_PER_KG
+  const perDay = slope * 86400000                       // weight units gained per day
+  const burn = Math.round(mean(burns))
+  const balance = Math.round(perDay * perKg)            // + surplus, − deficit
+  return {
+    enough: true,
+    burn,
+    intake: Math.round(burn + balance),
+    balance,
+    perWeek: Math.round(perDay * 7 * 100) / 100,
+    weighIns: points.length,
+    burnDays: burns.length,
+    // Under ~150 kcal/day the estimate is inside the noise of both the scale and
+    // the watch, and calling that a surplus would be inventing a signal.
+    direction: Math.abs(balance) < 150 ? 'steady' : balance > 0 ? 'surplus' : 'deficit',
+  }
+}
+
 /* ============================ relationships ============================ */
 
 export function pearson(pairs) {

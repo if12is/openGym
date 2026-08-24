@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   lastDays, estimateHrMax, computeBaselines, trainingLoad,
   readiness, overloadFlag, hrRecovery, suggestRest, pearson, sleepVsVolume, prContext,
-  muscleRecovery, recoveryLevels, RECOVERY_MAX_H,
+  muscleRecovery, recoveryLevels, RECOVERY_MAX_H, energyBalance,
 } from './health-insights.js'
 import { isoOf } from './format.js'
 
@@ -272,6 +272,62 @@ describe('rest suggestion', () => {
   it('will not push past the bounds', () => {
     expect(suggestRest(180, Array.from({ length: 6 }, () => ({ drop: 5 })))).toBeNull()
     expect(suggestRest(60, Array.from({ length: 6 }, () => ({ drop: 40 })))).toBeNull()
+  })
+})
+
+describe('energy balance', () => {
+  const NOW = at(2026, 8, 24, 12, 0)
+  // 28 days of burn readings and a weigh-in every few days.
+  const burnDays = (kcal = 2600) => {
+    const days = {}
+    for (let i = 0; i < 28; i++) {
+      const d = new Date(NOW); d.setDate(d.getDate() - i)
+      days[isoOf(d)] = { kcalTotal: kcal }
+    }
+    return days
+  }
+  const weighIns = (startKg, perWeek, n = 8) =>
+    Array.from({ length: n }, (_, i) => {
+      const daysAgo = (n - 1 - i) * 3
+      return { t: NOW - daysAgo * 86400000, w: startKg + (perWeek / 7) * ((n - 1 - i) * -3) }
+    })
+
+  it('says so plainly when there is not enough to go on', () => {
+    expect(energyBalance({}, [], 'kg', 28, NOW).enough).toBe(false)
+    expect(energyBalance(burnDays(), [{ t: NOW, w: 80 }], 'kg', 28, NOW).enough).toBe(false)
+  })
+
+  it('reads a steady weight as eating what you burn', () => {
+    const e = energyBalance(burnDays(2600), weighIns(80, 0), 'kg', 28, NOW)
+    expect(e.enough).toBe(true)
+    expect(e.direction).toBe('steady')
+    expect(e.intake).toBeCloseTo(e.burn, -2)
+  })
+
+  it('turns weight gain into a surplus above burn', () => {
+    const e = energyBalance(burnDays(2600), weighIns(80, 0.4), 'kg', 28, NOW)
+    expect(e.direction).toBe('surplus')
+    expect(e.balance).toBeGreaterThan(150)
+    expect(e.intake).toBeGreaterThan(e.burn)
+  })
+
+  it('turns weight loss into a deficit below burn', () => {
+    const e = energyBalance(burnDays(2600), weighIns(80, -0.5), 'kg', 28, NOW)
+    expect(e.direction).toBe('deficit')
+    expect(e.balance).toBeLessThan(-150)
+    expect(e.intake).toBeLessThan(e.burn)
+  })
+
+  // The scale swings a kilo on water alone; anything inside that is not a signal.
+  it('refuses to call a tiny drift a surplus', () => {
+    const e = energyBalance(burnDays(2600), weighIns(80, 0.05), 'kg', 28, NOW)
+    expect(e.direction).toBe('steady')
+  })
+
+  it('uses the pounds constant when the profile logs pounds', () => {
+    const kg = energyBalance(burnDays(2600), weighIns(180, 1), 'kg', 28, NOW)
+    const lb = energyBalance(burnDays(2600), weighIns(180, 1), 'lb', 28, NOW)
+    expect(lb.balance).toBeLessThan(kg.balance)
   })
 })
 
