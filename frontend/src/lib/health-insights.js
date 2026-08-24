@@ -242,26 +242,11 @@ export const READY = r => !r || r.pct >= 100
 
 /* ============================ rest between sets ============================ */
 
-// How far the pulse came down in the minute after a peak. The single most useful
-// thing the watch can tell a lifter that a stopwatch cannot: it is the difference
-// between "90 seconds elapsed" and "you are actually ready".
-export function hrRecovery(samples, peakT, windowMs = 60000) {
-  if (!samples || samples.length < 2) return null
-  const at = t => {
-    let best = null
-    for (const s of samples) {
-      if (s.t > t) break
-      best = s
-    }
-    return best
-  }
-  const peak = at(peakT)
-  const after = at(peakT + windowMs)
-  if (!peak || !after || after.t <= peak.t) return null
-  return { drop: Math.max(0, peak.bpm - after.bpm), from: peak.bpm, to: after.bpm }
-}
-
-// Turn that into an actual rest-timer suggestion. Deliberately conservative: it
+// How far the pulse comes down in the minute after a set is the most useful thing
+// a watch can tell a lifter that a stopwatch cannot — the difference between "90
+// seconds elapsed" and "you are actually ready". Finding those peaks in a trace
+// lives in health-sync.recoveriesFor, which walks the whole session; this file
+// only turns the resulting drops into a suggestion. Deliberately conservative: it
 // only speaks up when the evidence is one-sided across several sessions, because
 // a timer that changes its mind every workout is worse than a fixed one.
 export function suggestRest(currentSec, recoveries) {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   lastDays, estimateHrMax, computeBaselines, trainingLoad,
-  readiness, overloadFlag, hrRecovery, suggestRest, pearson, sleepVsVolume, prContext,
+  readiness, overloadFlag, suggestRest, pearson, sleepVsVolume, prContext,
   muscleRecovery, recoveryLevels, RECOVERY_MAX_H, energyBalance, sleepStreakWeeks, periodReview, seasonality,
 } from './health-insights.js'
 import { isoOf } from './format.js'
@@ -228,24 +228,6 @@ describe('muscle recovery', () => {
   })
 })
 
-describe('pulse recovery', () => {
-  const t0 = at(2026, 8, 24, 18, 0)
-  const samples = [
-    { t: t0, bpm: 120 },
-    { t: t0 + 30000, bpm: 165 },
-    { t: t0 + 60000, bpm: 150 },
-    { t: t0 + 90000, bpm: 130 },
-  ]
-
-  it('measures the drop over the minute after a peak', () => {
-    expect(hrRecovery(samples, t0 + 30000)).toMatchObject({ from: 165, to: 130, drop: 35 })
-  })
-
-  it('is null without a reading a minute later', () => {
-    expect(hrRecovery(samples, t0 + 90000)).toBeNull()
-    expect(hrRecovery([], t0)).toBeNull()
-  })
-})
 
 describe('rest suggestion', () => {
   // Deliberately conservative: a timer that changes its mind every session is

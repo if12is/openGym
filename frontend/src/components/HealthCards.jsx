@@ -22,7 +22,7 @@ import { useStore } from '../store/useStore.js'
 import BodyMap from './BodyMap.jsx'
 import LineChart from './LineChart.jsx'
 import { Segmented, Button } from './ui.jsx'
-import { sessionSamples, hrReserve, ZONE_EDGES } from '../lib/health-match.js'
+import { sessionSamples, hrReserve, density, ZONE_EDGES } from '../lib/health-match.js'
 
 /* ============================ small formatters ============================ */
 
@@ -157,12 +157,20 @@ export function CalorieSplit({ kcal }) {
 /* ============================ session block ============================ */
 
 // Rendered inside the workout detail sheet, under the sets.
-export function SessionStats({ session, base }) {
+export function SessionStats({ session, base, w }) {
   if (!session) return null
   const restingDelta = session.sleepBefore && base?.sleep14
     ? Math.round(session.sleepBefore.min - base.sleep14) : null
+  // Work per minute. The number that tells a heavy hour apart from a long one —
+  // the history list draws them identically without it.
+  const dens = w?.vol && session.window
+    ? density(w.vol, session.window[1] - session.window[0]) : null
 
   return <div className="hstats">
+    {dens > 0 && <div className="hstat">
+      <div className="l"><Icon name="bolt" />{t('Density')}</div>
+      <div className="v">{Math.round(dens)}<small>{t('/min')}</small></div>
+    </div>}
     {session.hrAvg != null && <div className="hstat">
       <div className="l"><Icon name="heart" />{t('Avg')}</div>
       <div className="v">{session.hrAvg}<small>{t('bpm')}</small></div>
@@ -385,7 +393,7 @@ export function SessionBlock({ w }) {
       <ZoneLegend zones={session.zones} />
     </>}
 
-    <SessionStats session={session} base={health.base} />
+    <SessionStats session={session} base={health.base} w={w} />
 
     {session.kcal?.total > 0 && <>
       <h4 className="sec" style={{ marginTop: 16 }}>{t('Where the day’s energy went')}</h4>
