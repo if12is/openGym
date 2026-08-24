@@ -8,20 +8,20 @@
 
 import { useEffect, useState } from 'react'
 import { t, exName } from '../lib/i18n.js'
-import { todayISO } from '../lib/format.js'
+import { todayISO, MONTHS, MONTHS_LONG } from '../lib/format.js'
 import { MOBILE } from '../lib/mobile.js'
 import { effectiveRoutineId } from '../lib/history.js'
 import { useUI } from '../store/useUI.js'
 import Icon from './Icon.jsx'
 import SessionChart, { ZoneBar, ZONE_COLORS, ZONE_NAMES } from './SessionChart.jsx'
 import { getHealth, subscribeHealth, getConn } from '../lib/health-store.js'
-import { readiness, overloadFlag, trainingLoad, sleepVsVolume, suggestRest, prContext, muscleRecovery, recoveryLevels, exerciseCost, energyBalance, sleepStreakWeeks } from '../lib/health-insights.js'
+import { readiness, overloadFlag, trainingLoad, sleepVsVolume, suggestRest, prContext, muscleRecovery, recoveryLevels, exerciseCost, energyBalance, sleepStreakWeeks, periodReview, seasonality } from '../lib/health-insights.js'
 import { loadOfWorkouts, MUSCLE_NAME } from '../lib/muscles.js'
 import { EXIDX } from '../lib/exercises.js'
 import { useStore } from '../store/useStore.js'
 import BodyMap from './BodyMap.jsx'
 import LineChart from './LineChart.jsx'
-import { Segmented } from './ui.jsx'
+import { Segmented, Button } from './ui.jsx'
 import { sessionSamples, hrReserve, ZONE_EDGES } from '../lib/health-match.js'
 
 /* ============================ small formatters ============================ */
@@ -675,6 +675,114 @@ export function EnergyBalanceCard({ S }) {
   </div>
 }
 
+/* ============================ the year, in one screen ============================ */
+
+// Twelve bars, one per month. Deliberately not a line chart: a year of training
+// is twelve discrete efforts, not a continuous signal, and bars let a gap read
+// as "I did nothing that month" instead of being interpolated over.
+function MonthBars({ months, field, color, format }) {
+  const vals = months.map(m => m[field] || 0)
+  const max = Math.max(1, ...vals)
+  const best = Math.max(...vals)
+  return <div className="mbars">
+    {months.map(m => (
+      <div className="mbar" key={m.key} title={t(MONTHS[m.month]) + ' · ' + format(m[field])}>
+        <span className="mbar-t">
+          <i style={{
+            height: Math.max(2, (m[field] || 0) / max * 100) + '%',
+            background: color,
+            opacity: (m[field] || 0) === best && best > 0 ? 1 : 0.55,
+          }} />
+        </span>
+        <span className="mbar-l">{t(MONTHS[m.month]).slice(0, 3)}</span>
+      </div>
+    ))}
+  </div>
+}
+
+const SEASON_LABEL = months => {
+  // Name the run of months rather than listing them: "Jun–Aug" is a season,
+  // "Jun, Jul, Aug" is a list the reader has to turn into one.
+  const sorted = [...months].sort((a, b) => a - b)
+  return sorted.map(m => t(MONTHS[m])).join(' · ')
+}
+
+function ReviewSheet({ S, close }) {
+  const health = useHealth()
+  const [span, setSpan] = useState(365)
+  const now = Date.now()
+  const from = now - span * 86400000
+  const r = periodReview(health.days, S.workouts || [], health.sessions, from, now)
+
+  if (!r.months.length) {
+    return <>
+      <h3>{t('Your year')}</h3>
+      <div className="muted small">{t('Nothing in this period yet.')}</div>
+      <div style={{ height: 8 }} />
+    </>
+  }
+
+  const seasonTraining = seasonality(r.months, 'workouts')
+  const seasonSleep = seasonality(r.months, 'sleepAvg')
+
+  return <>
+    <h3>{t('Your year')}</h3>
+    <Segmented className="seg-range" value={span} onChange={setSpan}
+      options={[{ value: 180, label: '6M' }, { value: 365, label: '1Y' }, { value: 1095, label: t('All') }]} />
+
+    <div className="tiles" style={{ marginTop: 12 }}>
+      <div className="tile"><div className="l"><Icon name="dumbbell" />{t('Workouts')}</div>
+        <div className="v">{r.totals.workouts}</div></div>
+      <div className="tile"><div className="l"><Icon name="trophy" />{t('PRs')}</div>
+        <div className="v">{r.totals.prs || '—'}</div></div>
+      <div className="tile"><div className="l"><Icon name="sleep" />{t('Avg sleep')}</div>
+        <div className="v" style={{ fontSize: 22 }}>{hhmm(r.totals.sleepAvg)}</div></div>
+      <div className="tile"><div className="l"><Icon name="chartLine" />{t('Volume')}</div>
+        <div className="v" style={{ fontSize: 20 }}>{Math.round(r.totals.volume / 1000)}k</div></div>
+    </div>
+
+    <h4 className="sec" style={{ marginTop: 14 }}>{t('Sessions by month')}</h4>
+    <MonthBars months={r.months} field="workouts" color="var(--acc)" format={v => t('{0} workouts total', v || 0)} />
+
+    {r.totals.sleepDays > 30 && <>
+      <h4 className="sec" style={{ marginTop: 16 }}>{t('Sleep by month')}</h4>
+      <MonthBars months={r.months} field="sleepAvg" color="var(--indigo)" format={v => hhmm(v)} />
+    </>}
+
+    {r.best.training && <div className="mrow" style={{ marginTop: 14 }}>
+      <span className="nm">{t('Most training')}</span>
+      <span className="v">{t(MONTHS_LONG[r.best.training.month])} · {t('{0} workouts total', r.best.training.workouts)}</span>
+    </div>}
+    {r.best.sleep && <div className="mrow">
+      <span className="nm">{t('Best slept')}</span>
+      <span className="v">{t(MONTHS_LONG[r.best.sleep.month])} · {hhmm(r.best.sleep.sleepAvg)}</span>
+    </div>}
+    {r.best.steps && <div className="mrow">
+      <span className="nm">{t('Most walking')}</span>
+      <span className="v">{t(MONTHS_LONG[r.best.steps.month])} · {Math.round(r.best.steps.stepsAvg).toLocaleString()}</span>
+    </div>}
+
+    {/* Stated only when the gap is big enough to survive being called a pattern. */}
+    {(seasonTraining || seasonSleep) && <>
+      <h4 className="sec" style={{ marginTop: 16 }}>{t('Your seasons')}</h4>
+      {seasonTraining && <p className="muted small" style={{ lineHeight: 1.5, marginBottom: 6 }}>
+        {t('You train most in {0} and least in {1} — about {2}% apart.',
+          SEASON_LABEL(seasonTraining.highMonths), SEASON_LABEL(seasonTraining.lowMonths), seasonTraining.gapPct)}
+      </p>}
+      {seasonSleep && <p className="muted small" style={{ lineHeight: 1.5 }}>
+        {t('You sleep longest in {0} and shortest in {1}.',
+          SEASON_LABEL(seasonSleep.highMonths), SEASON_LABEL(seasonSleep.lowMonths))}
+      </p>}
+    </>}
+
+    <div style={{ height: 14 }} />
+    <Button onClick={close}>{t('Close')}</Button>
+    <div style={{ height: 8 }} />
+  </>
+}
+
+export const openYearReview = S => useUI.getState().openSheet(close => <ReviewSheet S={S} close={close} />)
+
 /* ============================ stats tab ============================ */
 
 const avgOf = arr => (arr.length ? arr.reduce((n, v) => n + v, 0) / arr.length : null)
@@ -712,6 +820,7 @@ export function HealthStatsCard({ S }) {
   return <div className="card">
     <div className="row between" style={{ marginBottom: 8 }}>
       <h2 style={{ margin: 0 }}>{t('Health')}</h2>
+      <Button size="sm" icon="calendar" onClick={() => openYearReview(S)}>{t('Your year')}</Button>
     </div>
     <Segmented className="seg-range" value={range} onChange={setRange}
       options={[{ value: 30, label: '1M' }, { value: 90, label: '3M' }, { value: 365, label: '1Y' }, { value: 0, label: t('All') }]} />

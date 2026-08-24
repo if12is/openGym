@@ -418,6 +418,120 @@ export function energyBalance(days, bodyweight, unit = 'kg', windowDays = 28, no
   }
 }
 
+/* ============================ the long view ============================ */
+
+const monthKey = ms => {
+  const d = new Date(ms)
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
+}
+
+/**
+ * A period broken down by month — which is also the only honest way to show
+ * seasonality. "Do you train less in summer" is not a statistic you can compute
+ * from a total; it is a shape, and the shape only appears month by month.
+ *
+ * Every month carries how many days it actually had data for, because a month
+ * with four sleep readings and a month with thirty should not be drawn at the
+ * same confidence.
+ */
+export function periodReview(days, workouts, sessions, fromMs, toMs) {
+  const months = new Map()
+  const bucket = key => {
+    if (!months.has(key)) {
+      months.set(key, { key, workouts: 0, volume: 0, trimp: 0, sleep: [], steps: [], kcal: [], prs: 0 })
+    }
+    return months.get(key)
+  }
+
+  for (const [iso, d] of Object.entries(days || {})) {
+    const ms = new Date(iso + 'T12:00:00').getTime()
+    if (ms < fromMs || ms > toMs) continue
+    const b = bucket(monthKey(ms))
+    if (d.sleepMin) b.sleep.push(d.sleepMin)
+    if (d.steps) b.steps.push(d.steps)
+    if (d.kcalActive) b.kcal.push(d.kcalActive)
+  }
+
+  for (const w of workouts || []) {
+    const ms = w.start || new Date(w.d).getTime()
+    if (!ms || ms < fromMs || ms > toMs) continue
+    const b = bucket(monthKey(ms))
+    b.workouts++
+    b.volume += w.vol || 0
+    b.prs += (w.prs || []).length
+    const s = sessions?.[w.id]
+    if (s?.trimp) b.trimp += s.trimp
+  }
+
+  const list = [...months.values()]
+    .map(b => ({
+      key: b.key,
+      month: Number(b.key.slice(5)) - 1,
+      year: Number(b.key.slice(0, 4)),
+      workouts: b.workouts,
+      volume: Math.round(b.volume),
+      trimp: b.trimp,
+      prs: b.prs,
+      sleepAvg: b.sleep.length ? Math.round(mean(b.sleep)) : null,
+      sleepDays: b.sleep.length,
+      stepsAvg: b.steps.length ? Math.round(mean(b.steps)) : null,
+      kcalAvg: b.kcal.length ? Math.round(mean(b.kcal)) : null,
+    }))
+    .sort((a, b) => (a.key < b.key ? -1 : 1))
+
+  const pick = (field) => {
+    const withVal = list.filter(m => m[field] != null && m[field] > 0)
+    if (!withVal.length) return null
+    return withVal.reduce((best, m) => (m[field] > best[field] ? m : best))
+  }
+
+  const allSleep = list.flatMap(m => (m.sleepAvg ? Array(m.sleepDays).fill(m.sleepAvg) : []))
+  return {
+    months: list,
+    totals: {
+      workouts: list.reduce((n, m) => n + m.workouts, 0),
+      volume: list.reduce((n, m) => n + m.volume, 0),
+      prs: list.reduce((n, m) => n + m.prs, 0),
+      sleepAvg: allSleep.length ? Math.round(mean(allSleep)) : null,
+      sleepDays: list.reduce((n, m) => n + m.sleepDays, 0),
+    },
+    best: {
+      training: pick('workouts'),
+      volume: pick('volume'),
+      sleep: pick('sleepAvg'),
+      steps: pick('stepsAvg'),
+    },
+  }
+}
+
+/**
+ * The seasonal claim, stated only when it is strong enough to be worth stating.
+ *
+ * Compares the best and worst thirds of the months on one measure. Needs at
+ * least eight months with data and a gap worth noticing, otherwise it returns
+ * null — "you train slightly less in March" is noise wearing a conclusion's
+ * clothes.
+ */
+export const SEASON_MIN_MONTHS = 8
+export const SEASON_MIN_GAP = 0.2   // 20% between the high and low thirds
+
+export function seasonality(months, field) {
+  const vals = (months || []).filter(m => m[field] != null && m[field] > 0)
+  if (vals.length < SEASON_MIN_MONTHS) return null
+  const sorted = [...vals].sort((a, b) => b[field] - a[field])
+  const third = Math.max(1, Math.floor(sorted.length / 3))
+  const high = sorted.slice(0, third)
+  const low = sorted.slice(-third)
+  const hi = mean(high.map(m => m[field]))
+  const lo = mean(low.map(m => m[field]))
+  if (!lo || (hi - lo) / lo < SEASON_MIN_GAP) return null
+  return {
+    highMonths: high.map(m => m.month),
+    lowMonths: low.map(m => m.month),
+    gapPct: Math.round(((hi - lo) / lo) * 100),
+  }
+}
+
 /* ============================ relationships ============================ */
 
 export function pearson(pairs) {

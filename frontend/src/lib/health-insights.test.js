@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   lastDays, estimateHrMax, computeBaselines, trainingLoad,
   readiness, overloadFlag, hrRecovery, suggestRest, pearson, sleepVsVolume, prContext,
-  muscleRecovery, recoveryLevels, RECOVERY_MAX_H, energyBalance, sleepStreakWeeks,
+  muscleRecovery, recoveryLevels, RECOVERY_MAX_H, energyBalance, sleepStreakWeeks, periodReview, seasonality,
 } from './health-insights.js'
 import { isoOf } from './format.js'
 
@@ -386,6 +386,88 @@ describe('energy balance', () => {
     const kg = energyBalance(burnDays(2600), weighIns(180, 1), 'kg', 28, NOW)
     const lb = energyBalance(burnDays(2600), weighIns(180, 1), 'lb', 28, NOW)
     expect(lb.balance).toBeLessThan(kg.balance)
+  })
+})
+
+describe('period review', () => {
+  const FROM = at(2026, 1, 1), TO = at(2026, 12, 31)
+  const days = {}
+  const workouts = []
+  // Twelve months: training tails off over the summer, sleep dips with it.
+  for (let m = 1; m <= 12; m++) {
+    const summer = m >= 6 && m <= 8
+    for (let d = 1; d <= 28; d++) {
+      const iso = `2026-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+      days[iso] = { sleepMin: summer ? 360 : 460, steps: summer ? 6000 : 9000 }
+    }
+    const n = summer ? 2 : 10
+    for (let i = 0; i < n; i++) {
+      workouts.push({ id: `w${m}-${i}`, d: `2026-${String(m).padStart(2, '0')}-05`,
+        start: at(2026, m, 5, 18), vol: 5000, prs: i === 0 ? ['x'] : [] })
+    }
+  }
+
+  it('buckets by calendar month', () => {
+    const r = periodReview(days, workouts, {}, FROM, TO)
+    expect(r.months).toHaveLength(12)
+    expect(r.months[0].month).toBe(0)
+    expect(r.months[0].workouts).toBe(10)
+    expect(r.months[6].workouts).toBe(2)   // July
+  })
+
+  it('totals across the period', () => {
+    const r = periodReview(days, workouts, {}, FROM, TO)
+    expect(r.totals.workouts).toBe(9 * 10 + 3 * 2)
+    expect(r.totals.prs).toBe(12)
+    expect(r.totals.sleepAvg).toBeGreaterThan(400)
+  })
+
+  it('picks out the standout months', () => {
+    const r = periodReview(days, workouts, {}, FROM, TO)
+    expect(r.best.training.workouts).toBe(10)
+    expect(r.best.sleep.sleepAvg).toBe(460)
+    expect([5, 6, 7]).not.toContain(r.best.sleep.month)
+  })
+
+  it('excludes anything outside the window', () => {
+    const r = periodReview(days, workouts, {}, at(2026, 6, 1), at(2026, 8, 31))
+    expect(r.months).toHaveLength(3)
+    expect(r.totals.workouts).toBe(6)
+  })
+
+  it('survives an empty period', () => {
+    const r = periodReview({}, [], {}, FROM, TO)
+    expect(r.months).toEqual([])
+    expect(r.totals.workouts).toBe(0)
+    expect(r.best.training).toBeNull()
+  })
+})
+
+describe('seasonality', () => {
+  const months = n => Array.from({ length: n }, (_, i) => ({ month: i, workouts: 10 }))
+
+  it('says nothing without enough months', () => {
+    expect(seasonality(months(5), 'workouts')).toBeNull()
+  })
+
+  // "You train slightly less in March" is noise wearing a conclusion's clothes.
+  it('says nothing when the months barely differ', () => {
+    const flat = months(12).map((m, i) => ({ ...m, workouts: 10 + (i % 2) }))
+    expect(seasonality(flat, 'workouts')).toBeNull()
+  })
+
+  it('names the high and low months when the gap is real', () => {
+    const swing = months(12).map((m, i) => ({ ...m, workouts: i >= 5 && i <= 7 ? 2 : 12 }))
+    const s = seasonality(swing, 'workouts')
+    expect(s).not.toBeNull()
+    expect(s.gapPct).toBeGreaterThan(100)
+    expect(s.lowMonths).toContain(6)
+    expect(s.highMonths).not.toContain(6)
+  })
+
+  it('ignores months with no reading for that measure', () => {
+    const sparse = months(12).map((m, i) => ({ ...m, sleepAvg: i < 3 ? null : 400 }))
+    expect(seasonality(sparse, 'sleepAvg')).toBeNull()   // only 9 usable, all equal
   })
 })
 
