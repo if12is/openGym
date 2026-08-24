@@ -79,9 +79,17 @@ jobs:
           set -o pipefail
           gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee gradle-build.log
 
+      # Job logs can only be downloaded by a repo admin, but check annotations are
+      # readable by anyone — so a red build is diagnosable without handing out
+      # admin rights, and without re-running it locally.
       - name: Surface Gradle error
         if: failure()
-        run: tail -n 80 frontend/android/gradle-build.log || true
+        run: |
+          tail -n 120 frontend/android/gradle-build.log || true
+          grep -aE "^e: |error:|FAILURE:|What went wrong|Caused by:|Unresolved reference|Execution failed|Compilation error" \
+            frontend/android/gradle-build.log 2>/dev/null | head -n 25 | tr -d '\r' | while IFS= read -r line; do
+              echo "::error::${line}"
+            done || true
 
       - name: Name the APK
         run: |
