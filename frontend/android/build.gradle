@@ -5,6 +5,7 @@ buildscript {
     repositories {
         google()
         mavenCentral()
+        maven { url 'https://developer.huawei.com/repo/' }
     }
     dependencies {
         // connect-client 1.1.0 requires AGP 8.9.1+. 8.10.1 is the newest that
@@ -12,6 +13,7 @@ buildscript {
         // the bump that does not also drag the wrapper along.
         classpath 'com.android.tools.build:gradle:8.10.1'
         classpath 'com.google.gms:google-services:4.4.2'
+        classpath 'com.huawei.agconnect:agcp:1.9.1.301'
         // Health Connect's client API is coroutine-based (every read is a suspend
         // function), so the plugin that wraps it is Kotlin. Version is repeated
         // here rather than read from variables.gradle because buildscript{} is
@@ -29,6 +31,7 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        maven { url 'https://developer.huawei.com/repo/' }
     }
     def kv = rootProject.ext.has('kotlin_version') ? rootProject.ext.kotlin_version : '2.0.21'
     configurations.configureEach {

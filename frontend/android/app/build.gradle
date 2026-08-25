@@ -22,6 +22,8 @@ android {
     packaging {
         resources {
             pickFirsts += 'META-INF/*.kotlin_module'
+            pickFirsts += 'META-INF/INDEX.LIST'
+            pickFirsts += 'META-INF/io.netty.versions.properties'
         }
     }
     defaultConfig {
@@ -34,8 +36,25 @@ android {
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
-            ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
+        // Read from agconnect-services.json when the developer has dropped the
+        // AppGallery Connect file in. "0" means Health Kit sign-in will refuse
+        // with not-configured instead of a cryptic 6003.
+        def huaweiAppId = '0'
+        def agc = file('agconnect-services.json')
+        if (agc.exists()) {
+            try {
+                def json = new groovy.json.JsonSlurper().parse(agc)
+                def id = json.client?.app_id ?: json.app_info?.app_id
+                if (id && id != 'YOUR_HUAWEI_APP_ID') huaweiAppId = id.toString()
+            } catch (Exception ignored) { /* placeholder json is fine */ }
+        }
+        if (project.hasProperty('HUAWEI_APP_ID')) {
+            huaweiAppId = project.property('HUAWEI_APP_ID').toString()
+        }
+        resValue "string", "huawei_app_id", huaweiAppId
+        manifestPlaceholders += [HUAWEI_APP_ID: huaweiAppId]
     }
     signingConfigs {
         debug {
@@ -75,10 +94,10 @@ dependencies {
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
-    // Reads heart rate, sleep, steps and calories off Health Connect. Nothing
-    // here talks to Google or Huawei servers — Health Connect is a local store on
-    // the phone that other apps (here: Health Sync) write into.
+    // Health Connect remains the fallback on GMS phones. Huawei Health Kit is
+    // the default on HMS devices — Health Connect's client bind hangs there.
     implementation "androidx.health.connect:connect-client:$healthConnectVersion"
+    implementation "com.huawei.hms:health:$huaweiHealthVersion"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
@@ -96,4 +115,13 @@ try {
     }
 } catch(Exception e) {
     logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}
+
+try {
+    def agc = file('agconnect-services.json')
+    if (agc.exists() && agc.text.contains('"app_id"') && !agc.text.contains('YOUR_HUAWEI_APP_ID')) {
+        apply plugin: 'com.huawei.agconnect'
+    }
+} catch(Exception e) {
+    logger.info("agconnect-services.json not applied")
 }

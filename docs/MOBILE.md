@@ -102,3 +102,12 @@ that would simply install. Your free options:
 - The app requests notification permission only when the workout-day reminder is switched
   on, and (on Android) declares `SCHEDULE_EXACT_ALARM` so the reminder fires to the minute
   where the user allows it.
+
+## Watch health (Huawei Health Kit)
+
+On Huawei/Honor the app reads the watch through **Huawei Health Kit** (Huawei ID +
+Huawei Health), not Health Connect. Health Connect remains a fallback on GMS phones.
+
+Real data requires an AppGallery Connect app, SHA-256 fingerprint, and approved Health
+Kit scopes. Drop `agconnect-services.json` in `frontend/android/app/` (see the
+`.example` next to it). Full checklist: [HUAWEI_HEALTH.md](HUAWEI_HEALTH.md).

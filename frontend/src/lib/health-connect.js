@@ -1,4 +1,5 @@
-// The JS side of the Health Connect bridge.
+// The JS side of the health bridge (Huawei Health Kit, with Health Connect as
+// a GMS fallback).
 //
 // This module is the contract the native plugin implements — one place that knows
 // the method names, the argument shapes and what a missing value looks like. The
@@ -16,7 +17,7 @@
 
 import { healthPlugin, getConn } from './health-store.js'
 
-// Health Sync writes in batches minutes after the watch syncs, so a query that
+// Watch data often lands a few minutes after the watch syncs, so a query that
 // returns nothing is usually "not yet", not "never". Callers distinguish the two
 // by the `ok` flag rather than by an empty array.
 const fail = reason => ({ ok: false, reason })

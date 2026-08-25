@@ -44,24 +44,15 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /**
- * Health Connect bridge — read only.
+ * Health bridge — read only.
  *
- * Written in Kotlin because every call on HealthConnectClient is a suspend
- * function; calling those from Java means hand-rolling Continuations, which is
- * the kind of code nobody wants to maintain. This is also why the app has its
- * own plugin instead of one off npm: on the Capacitor 7 line, no published
- * plugin exposes sleep or resting heart rate, and those two are what the
- * readiness features are built on.
+ * Huawei Health Kit is the default on Huawei/Honor (and any phone with HMS Core
+ * + Huawei Health). Health Connect stays as the GMS fallback. The JS contract
+ * is the same either way (lib/health-connect.js): epoch milliseconds, empty
+ * lists when nothing is recorded, stable reject codes.
  *
- * Nothing here reaches a network. Health Connect is an on-device store that
- * other apps write into — for a Huawei watch that is Health Sync, mirroring out
- * of Huawei Health. The app never sees a Google or Huawei account.
- *
- * Contract with the JS side (lib/health-connect.js):
- *   · all instants are epoch milliseconds, in and out
- *   · a read with nothing recorded resolves with an empty list, it never rejects
- *   · rejections use stable codes, because each needs a different fix from the
- *     user: "not-authorized" is a permission, "unavailable" is a missing app
+ * Health Connect's client bind hangs on Honor/Huawei — that is why those
+ * devices never take the Google path, even when the provider APK is present.
  */
 @CapacitorPlugin(name = "Health")
 class HealthPlugin : Plugin() {
@@ -180,12 +171,26 @@ class HealthPlugin : Plugin() {
         }
     }
 
+    private fun huaweiRead(call: PluginCall, block: () -> Unit): Boolean {
+        if (!HealthHuawei.shouldHandle(context)) return false
+        scope.launch {
+            try { block() } catch (e: Throwable) {
+                call.reject(e.message ?: "health-error")
+            }
+        }
+        return true
+    }
+
     /* ============================ availability ============================ */
 
     @PluginMethod
     fun isAvailable(call: PluginCall) {
         scope.launch {
-            val ret = JSObject()
+            if (HealthHuawei.shouldHandle(context)) {
+                call.resolve(HealthHuawei.availability(context))
+                return@launch
+            }
+            val ret = JSObject().put("provider", "health-connect")
             val status = runTimed(8_000) { HealthConnectClient.getSdkStatus(context) }
             if (status == null) {
                 ret.put("available", false)
@@ -228,6 +233,14 @@ class HealthPlugin : Plugin() {
      */
     @PluginMethod
     fun openSettings(call: PluginCall) {
+        if (HealthHuawei.shouldHandle(context)) {
+            if (HealthHuawei.openSettings(context)) {
+                call.resolve(JSObject().put("via", "huawei-health"))
+            } else {
+                call.reject("no-settings")
+            }
+            return
+        }
         val actions = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= 34) actions.add(ACTION_HEALTH_HOME_SETTINGS)
         actions.add(HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS)
@@ -252,6 +265,11 @@ class HealthPlugin : Plugin() {
 
     @PluginMethod
     fun openPlayStore(call: PluginCall) {
+        if (HealthHuawei.shouldHandle(context)) {
+            if (HealthHuawei.openStore(context)) call.resolve()
+            else call.reject("no-store")
+            return
+        }
         val pkg = "com.google.android.apps.healthdata"
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$pkg"))
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -284,7 +302,21 @@ class HealthPlugin : Plugin() {
 
     @PluginMethod
     fun checkAuthorization(call: PluginCall) {
-        scope.launch { call.resolve(grantedResult(grantedNow() ?: emptySet())) }
+        scope.launch {
+            if (HealthHuawei.shouldHandle(context)) {
+                call.resolve(HealthHuawei.checkAuthorization(context))
+            } else {
+                call.resolve(grantedResult(grantedNow() ?: emptySet()))
+            }
+        }
+    }
+
+    @PluginMethod
+    fun signOut(call: PluginCall) {
+        scope.launch {
+            if (HealthHuawei.shouldHandle(context)) HealthHuawei.signOut(context)
+            call.resolve()
+        }
     }
 
     /* -- the permission picker ------------------------------------------------
@@ -303,6 +335,7 @@ class HealthPlugin : Plugin() {
      */
     private var pendingCall: PluginCall? = null
     private var settled = true
+    private var pendingHuawei = false
     // The picker is another activity, so this app pauses when it opens. Resuming
     // without having paused means the picker never came up at all — which is a
     // different failure, and not one the resume path should answer.
@@ -317,11 +350,18 @@ class HealthPlugin : Plugin() {
         settled = true
         pendingCall = null
         main.removeCallbacks(watchdog)
-        scope.launch { call.resolve(grantedResult(grantedNow() ?: emptySet())) }
+        scope.launch {
+            if (pendingHuawei) call.resolve(HealthHuawei.checkAuthorization(context))
+            else call.resolve(grantedResult(grantedNow() ?: emptySet()))
+        }
     }
 
     @PluginMethod
     fun requestAuthorization(call: PluginCall) {
+        if (HealthHuawei.shouldHandle(context)) {
+            launchHuaweiAuth(call)
+            return
+        }
         val wanted = requestedScopes(call).ifEmpty { scopeNames() }
         val perms = wanted.mapNotNull { permissionFor(it) }.toMutableSet()
         // Asked for in the same sheet as the data types rather than sending the
@@ -344,6 +384,56 @@ class HealthPlugin : Plugin() {
             // Do not wait for getOrCreate — the picker is an Intent, it does not
             // need a bound client. Binding first is what left JS hanging.
             launchPicker(call, perms)
+        }
+    }
+
+    private fun launchHuaweiAuth(call: PluginCall) {
+        val avail = HealthHuawei.availability(context)
+        if (!avail.optBoolean("available", false)) {
+            call.reject(avail.getString("reason") ?: "unavailable")
+            return
+        }
+        val held = HealthHuawei.checkAuthorization(context)
+        val already = held.optJSONArray("granted")
+        if (already != null && already.length() > 0) {
+            var hasHr = false
+            for (i in 0 until already.length()) {
+                if (already.optString(i) == "READ_HEART_RATE") hasHr = true
+            }
+            if (hasHr) { call.resolve(held); return }
+        }
+        val act = activity
+        if (act == null) { call.reject("no-activity"); return }
+        val intent = HealthHuawei.authIntent(context)
+        if (intent == null) { call.reject("no-picker"); return }
+        synchronized(this) {
+            pendingCall = call
+            settled = false
+            pendingHuawei = true
+            pausedSinceLaunch = false
+        }
+        act.runOnUiThread {
+            try {
+                startActivityForResult(call, intent, "huaweiAuthResult")
+                main.postDelayed(watchdog, 100_000)
+            } catch (e: Throwable) {
+                synchronized(this) { settled = true; pendingCall = null; pendingHuawei = false }
+                call.reject("no-picker")
+            }
+        }
+    }
+
+    @ActivityCallback
+    fun huaweiAuthResult(call: PluginCall?, result: ActivityResult) {
+        val pending = call ?: pendingCall
+        if (settled && pending == null) return
+        settled = true
+        pendingCall = null
+        pendingHuawei = false
+        main.removeCallbacks(watchdog)
+        val data = result.data
+        scope.launch {
+            (pending ?: call)?.resolve(HealthHuawei.parseAuth(context, data))
         }
     }
 
@@ -373,6 +463,7 @@ class HealthPlugin : Plugin() {
         synchronized(this) {
             pendingCall = call
             settled = false
+            pendingHuawei = false
             pausedSinceLaunch = false
         }
         // Capacitor plugin methods run on a background HandlerThread.
@@ -436,6 +527,7 @@ class HealthPlugin : Plugin() {
 
     @PluginMethod
     fun readHeartRate(call: PluginCall) {
+        if (huaweiRead(call) { HealthHuawei.readHeartRate(context, call) }) return
         val filter = range(call) ?: run { call.reject("bad-range"); return }
         val origins = originsOf(call)
         run(call) {
@@ -455,6 +547,7 @@ class HealthPlugin : Plugin() {
 
     @PluginMethod
     fun readRestingHeartRate(call: PluginCall) {
+        if (huaweiRead(call) { HealthHuawei.readRestingHeartRate(context, call) }) return
         val filter = range(call) ?: run { call.reject("bad-range"); return }
         val origins = originsOf(call)
         run(call) {
@@ -479,6 +572,7 @@ class HealthPlugin : Plugin() {
      */
     @PluginMethod
     fun readRecovery(call: PluginCall) {
+        if (huaweiRead(call) { HealthHuawei.readRecovery(context, call) }) return
         val filter = range(call) ?: run { call.reject("bad-range"); return }
         val origins = originsOf(call)
         run(call) {
@@ -502,6 +596,7 @@ class HealthPlugin : Plugin() {
 
     @PluginMethod
     fun readSleep(call: PluginCall) {
+        if (huaweiRead(call) { HealthHuawei.readSleep(context, call) }) return
         val filter = range(call) ?: run { call.reject("bad-range"); return }
         val origins = originsOf(call)
         run(call) {
@@ -526,6 +621,7 @@ class HealthPlugin : Plugin() {
 
     @PluginMethod
     fun readExerciseSessions(call: PluginCall) {
+        if (huaweiRead(call) { HealthHuawei.readExerciseSessions(context, call) }) return
         val filter = range(call) ?: run { call.reject("bad-range"); return }
         val origins = originsOf(call)
         run(call) {
@@ -558,6 +654,7 @@ class HealthPlugin : Plugin() {
 
     @PluginMethod
     fun aggregate(call: PluginCall) {
+        if (huaweiRead(call) { HealthHuawei.aggregate(context, call) }) return
         val filter = range(call) ?: run { call.reject("bad-range"); return }
         val origins = originsOf(call)
         val wanted = call.getArray("metrics")?.let { arr ->
@@ -600,6 +697,7 @@ class HealthPlugin : Plugin() {
      */
     @PluginMethod
     fun listOrigins(call: PluginCall) {
+        if (huaweiRead(call) { HealthHuawei.listOrigins(context, call) }) return
         val filter = range(call) ?: run { call.reject("bad-range"); return }
         run(call) {
             val pkgs = LinkedHashSet<String>()
@@ -628,7 +726,11 @@ class HealthPlugin : Plugin() {
     @PluginMethod
     fun diagnose(call: PluginCall) {
         scope.launch {
-            val out = JSObject()
+            if (HealthHuawei.shouldHandle(context)) {
+                call.resolve(HealthHuawei.diagnose(context))
+                return@launch
+            }
+            val out = JSObject().put("provider", "health-connect")
             out.put("sdkInt", Build.VERSION.SDK_INT)
             out.put("device", Build.MANUFACTURER + " " + Build.MODEL)
 
