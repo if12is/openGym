@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.5.1 — 2026-08-25
+
+Honor and Huawei often never show the in-app Health Connect picker, so linking hung on
+“Waiting for Health Connect…” even when Health Sync had already written data.
+
+- **Allow from Health Connect** in Settings opens Health Connect itself so you can turn Gemak on
+  there. That is the grant path that works on Honor and Huawei.
+- **Pull watch data** only reads. It does not ask for permission and does not wait on a silent
+  picker.
+- Unconfigured Huawei/Honor phones stay on Health Connect, so Health Sync data is not hidden
+  behind Health Kit.
+
 ## v1.2.4 — 2026-08-01
 
 The effort ratings you have been recording since v1.2.3 now answer questions, and bodyweight
