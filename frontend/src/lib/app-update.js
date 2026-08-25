@@ -40,11 +40,40 @@ export async function getInstalledVersion() {
   }
 }
 
+// Native first, and not as an optimisation.
+//
+// GitHub release assets 302 to a storage host and send no CORS headers on either
+// hop, so a fetch() from the WebView's https://localhost origin is a cross-origin
+// request that never completes — it hung rather than rejecting, which is what
+// left the update card sitting on "Checking…" with nothing to retry. Java has no
+// same-origin policy to answer to, and takes a real timeout.
+//
+// The fetch path stays for `npm run dev` in a browser, where there is no plugin.
 export async function fetchRemoteManifest() {
-  const res = await fetch(MANIFEST_URL, { cache: 'no-store' })
-  if (!res.ok) throw new Error('HTTP ' + res.status)
-  return res.json()
+  const p = await appUpdatePlugin()
+  if (p) {
+    try {
+      const r = await p.httpGet({ url: MANIFEST_URL })
+      return JSON.parse(r.body)
+    } catch (e) {
+      // An older APK predates httpGet; anything else is a real network failure
+      // and should be reported rather than retried over a route that cannot work.
+      if (!isUnimplemented(e)) throw new Error(e?.message || 'network')
+    }
+  }
+  const ctrl = new AbortController()
+  const tm = setTimeout(() => ctrl.abort(), 20000)
+  try {
+    const res = await fetch(MANIFEST_URL, { cache: 'no-store', signal: ctrl.signal })
+    if (!res.ok) throw new Error('HTTP ' + res.status)
+    return await res.json()
+  } finally { clearTimeout(tm) }
 }
+
+// Capacitor's registerPlugin returns a proxy, so every method looks callable —
+// a missing one only shows up as this rejection at call time.
+const isUnimplemented = e =>
+  /not implemented|unimplemented|no such method/i.test(e?.message || e?.code || '')
 
 export function isNewer(remote, local) {
   return Number(remote?.versionCode) > Number(local?.versionCode)
@@ -107,6 +136,50 @@ export async function getPartialDownload() {
     const stat = await Filesystem.stat({ path: APK_PATH, directory: Directory.Cache })
     return { ...meta, loaded: Number(stat.size) || 0 }
   } catch { return null }
+}
+
+// Returns the finished meta, or null when the native side cannot do it (an older
+// APK) so the caller falls through to the JS download rather than failing.
+async function tryNativeDownload(remote, notify) {
+  const p = await appUpdatePlugin()
+  if (!p) return null
+  const { Filesystem, Directory } = await fs()
+
+  let dest
+  try {
+    const uri = await Filesystem.getUri({ path: APK_PATH, directory: Directory.Cache })
+    dest = decodeURIComponent(String(uri.uri).replace(/^file:\/\//, ''))
+  } catch { return null }
+
+  let start = 0
+  const partial = await getPartialDownload()
+  const off = resumeOffset(partial, remote)
+  if (off > 0) start = off
+  else if (partial || await getPendingInstall()) await discardStaleDownload()
+
+  let sub = null
+  try {
+    sub = await p.addListener('downloadProgress', ev => {
+      const total = Number(ev?.total) || 0
+      if (total > 0) notify(Math.min(1, Number(ev.loaded) / total))
+    })
+    const res = await p.downloadFile({ url: remote.apkUrl, path: dest, offset: start })
+    const meta = {
+      versionName: remote.versionName,
+      versionCode: remote.versionCode,
+      downloadedAt: Date.now(),
+      bytes: Number(res?.bytes) || 0,
+    }
+    await writeJson(APK_META, meta)
+    await deleteQuiet(PROGRESS_META)
+    notify(1)
+    return meta
+  } catch (e) {
+    if (isUnimplemented(e)) return null
+    throw new Error(e?.message || 'download failed')
+  } finally {
+    try { await sub?.remove() } catch { /* listener already gone */ }
+  }
 }
 
 async function writeJson(path, obj) {
@@ -179,6 +252,12 @@ export async function downloadUpdate(remote, onProgress) {
     if (!url) throw new Error('no apkUrl')
     const { Filesystem, Directory } = await fs()
     await Filesystem.mkdir({ path: 'updates', directory: Directory.Cache, recursive: true }).catch(() => {})
+
+    // Same CORS wall as the manifest, and the APK is ~10 MB — so when the native
+    // side can do it, the bytes go straight to disk instead of crossing the
+    // bridge as base64. The JS implementation below stays as the fallback.
+    const native = await tryNativeDownload(remote, notify)
+    if (native) return native
 
     let start = 0
     const partial = await getPartialDownload()
@@ -326,6 +405,10 @@ export async function bootAppUpdate() {
   if (downloadJob) return getUpdateState()
   setUpdateState({ phase: 'checking', error: null })
   const local = await getInstalledVersion()
+  // Publish the installed version before going near the network. It is known
+  // locally and costs nothing, and without it the card had nothing to show but
+  // "Checking…" — so a network problem looked identical to a hang.
+  setUpdateState({ phase: 'checking', local })
   let pending = await getPendingInstall()
   let partial = await getPartialDownload()
   let remote = null

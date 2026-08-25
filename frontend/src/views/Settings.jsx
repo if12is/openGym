@@ -342,6 +342,9 @@ function AppUpdateCard({ toast }) {
           subtitle={t('Tap to open the Android installer')}
           accessory="chevron" onClick={busy ? undefined : install} />
       )}
+      {s.phase === 'checking' && (
+        <Row icon="reset" iconTint="var(--label-3)" title={t('Checking for updates…')} />
+      )}
       {s.phase === 'latest' && (
         <Row icon="check" iconTint="var(--label-3)" title={t('You’re on the latest version')} />
       )}

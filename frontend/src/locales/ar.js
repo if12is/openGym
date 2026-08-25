@@ -830,6 +830,7 @@ export default {
   'Built from when each set was ticked against what your pulse was doing. A few more logged sessions and the ranking appears.': 'بيتبني من وقت ما بتعلّم على كل سِت مقابل نبضك ساعتها. كام جلسة كمان والترتيب هيظهر.',
   'Put the expensive ones early. The percentage is share of your heart-rate reserve, so it compares fairly across people and days.': 'حطّ التقيلة بدري. النسبة دي من احتياطي نبضك، فبتقارن بعدل بين الأيام وبين الناس.',
 
+  'Checking for updates…': 'بندوّر على تحديث…',
   'Density': 'الكثافة',
   '/min': '/د',
 
