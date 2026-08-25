@@ -19,3 +19,9 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Huawei HMS / Health Kit (needed if minify is ever turned on)
+-keep class com.huawei.** { *; }
+-dontwarn com.huawei.**
+-keep class com.hihonor.** { *; }
+-dontwarn com.hihonor.**

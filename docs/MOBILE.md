@@ -102,3 +102,20 @@ that would simply install. Your free options:
 - The app requests notification permission only when the workout-day reminder is switched
   on, and (on Android) declares `SCHEDULE_EXACT_ALARM` so the reminder fires to the minute
   where the user allows it.
+
+## Watch health (Health Connect + Health Sync)
+
+On Honor/Huawei the in-app permission picker often never appears. Settings
+therefore splits the flow:
+
+1. **Allow from Health Connect** opens Health Connect itself so you can turn
+   Gemak on there (heart rate, sleep, steps, calories).
+2. **Pull watch data** only reads. It does not ask for permission.
+
+The watch still talks to Huawei Health first. A bridge such as Health Sync
+copies that into Health Connect; Gemak then reads the on-device store.
+
+Huawei Health Kit remains available when `agconnect-services.json` is in the
+APK (see [HUAWEI_HEALTH.md](HUAWEI_HEALTH.md)). Without that file, Honor/Huawei
+phones use Health Connect so Health Sync data is not hidden behind a Kit that
+cannot sign in.

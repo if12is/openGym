@@ -44,24 +44,19 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /**
- * Health Connect bridge — read only.
+ * Health bridge — read only.
  *
- * Written in Kotlin because every call on HealthConnectClient is a suspend
- * function; calling those from Java means hand-rolling Continuations, which is
- * the kind of code nobody wants to maintain. This is also why the app has its
- * own plugin instead of one off npm: on the Capacitor 7 line, no published
- * plugin exposes sleep or resting heart rate, and those two are what the
- * readiness features are built on.
+ * Health Connect is the default, including on Honor/Huawei: that is where
+ * Health Sync writes, and those phones need the Health Connect permission
+ * screen rather than a silent in-app picker. Huawei Health Kit is used only
+ * when AppGallery Connect is actually wired into the APK.
  *
- * Nothing here reaches a network. Health Connect is an on-device store that
- * other apps write into — for a Huawei watch that is Health Sync, mirroring out
- * of Huawei Health. The app never sees a Google or Huawei account.
+ * The JS contract is the same either way (lib/health-connect.js): epoch
+ * milliseconds, empty lists when nothing is recorded, stable reject codes.
  *
- * Contract with the JS side (lib/health-connect.js):
- *   · all instants are epoch milliseconds, in and out
- *   · a read with nothing recorded resolves with an empty list, it never rejects
- *   · rejections use stable codes, because each needs a different fix from the
- *     user: "not-authorized" is a permission, "unavailable" is a missing app
+ * Health Connect's client bind can hang on Honor/Huawei. Binding is timed,
+ * never done on the UI thread, and never required just to open the Health
+ * Connect permission screen.
  */
 @CapacitorPlugin(name = "Health")
 class HealthPlugin : Plugin() {
@@ -91,8 +86,14 @@ class HealthPlugin : Plugin() {
         }
     }
 
-    private fun clientOrNull(): HealthConnectClient? =
-        runTimed(8_000) { HealthConnectClient.getOrCreate(context) }
+    @Volatile private var hcClient: HealthConnectClient? = null
+
+    private fun clientOrNull(): HealthConnectClient? {
+        hcClient?.let { return it }
+        val c = runTimed(8_000) { HealthConnectClient.getOrCreate(context) } ?: return null
+        hcClient = c
+        return c
+    }
 
     /** JS scope names → Health Connect permission strings. */
     private fun permissionFor(scope: String): String? = when (scope) {
@@ -146,7 +147,7 @@ class HealthPlugin : Plugin() {
         filter: TimeRangeFilter,
         origins: Set<DataOrigin>
     ): List<T> {
-        val c = clientOrNull() ?: return emptyList()
+        val c = clientOrNull() ?: throw RuntimeException("no-bind")
         val out = mutableListOf<T>()
         var token: String? = null
         do {
@@ -180,12 +181,26 @@ class HealthPlugin : Plugin() {
         }
     }
 
+    private fun huaweiRead(call: PluginCall, block: () -> Unit): Boolean {
+        if (!HealthHuawei.shouldHandle(context)) return false
+        scope.launch {
+            try { block() } catch (e: Throwable) {
+                call.reject(e.message ?: "health-error")
+            }
+        }
+        return true
+    }
+
     /* ============================ availability ============================ */
 
     @PluginMethod
     fun isAvailable(call: PluginCall) {
         scope.launch {
-            val ret = JSObject()
+            if (HealthHuawei.shouldHandle(context)) {
+                call.resolve(HealthHuawei.availability(context))
+                return@launch
+            }
+            val ret = JSObject().put("provider", "health-connect")
             val status = runTimed(8_000) { HealthConnectClient.getSdkStatus(context) }
             if (status == null) {
                 ret.put("available", false)
@@ -212,6 +227,47 @@ class HealthPlugin : Plugin() {
     }
 
     /**
+     * Always Health Connect — even on Honor/Huawei. The in-app picker often
+     * never appears there, so Settings opens the store's own permission screen
+     * and the pull button only reads.
+     *
+     * Prefer the per-app page (MANAGE_HEALTH_PERMISSIONS + package name) so the
+     * user lands on Gemak's toggles rather than Health Connect's home.
+     */
+    private fun launchHealthConnectPermissionScreen(): String? {
+        val pkg = context.packageName
+        val tries = mutableListOf<Intent>()
+        tries.add(
+            Intent(ACTION_MANAGE_HEALTH_PERMISSIONS).putExtra(Intent.EXTRA_PACKAGE_NAME, pkg)
+        )
+        tries.add(
+            Intent(ACTION_ANDROIDX_MANAGE_HEALTH_PERMISSIONS).putExtra(Intent.EXTRA_PACKAGE_NAME, pkg)
+        )
+        if (Build.VERSION.SDK_INT >= 34) tries.add(Intent(ACTION_HEALTH_HOME_SETTINGS))
+        tries.add(Intent(HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS))
+        if (Build.VERSION.SDK_INT < 34) tries.add(Intent(ACTION_HEALTH_HOME_SETTINGS))
+        tries.add(
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                .setData(Uri.parse("package:$pkg"))
+        )
+        for (intent in tries) {
+            if (startExternal(intent)) return intent.action ?: "opened"
+        }
+        return null
+    }
+
+    private fun startExternal(intent: Intent): Boolean {
+        val act = activity
+        return if (act != null) {
+            runCatching { act.startActivity(Intent(intent)) }.isSuccess
+        } else {
+            runCatching {
+                context.startActivity(Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }.isSuccess
+        }
+    }
+
+    /**
      * The manual way in: Health Connect's own screen, where access can be granted
      * without the picker. Which deep link works depends on the platform version,
      * and getting this wrong is not cosmetic — it is the only route left when the
@@ -228,23 +284,33 @@ class HealthPlugin : Plugin() {
      */
     @PluginMethod
     fun openSettings(call: PluginCall) {
-        val actions = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= 34) actions.add(ACTION_HEALTH_HOME_SETTINGS)
-        actions.add(HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS)
-        if (Build.VERSION.SDK_INT < 34) actions.add(ACTION_HEALTH_HOME_SETTINGS)
-
-        for (action in actions) {
-            val intent = Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            if (runCatching { context.startActivity(intent) }.isSuccess) {
-                call.resolve(JSObject().put("via", action))
-                return
+        // Kit is opt-in (configured APK). Everyone else — including Honor/Huawei
+        // using Health Sync — goes to Health Connect.
+        if (HealthHuawei.shouldHandle(context)) {
+            if (HealthHuawei.openSettings(context)) {
+                call.resolve(JSObject().put("via", "huawei-health"))
+            } else {
+                call.reject("no-settings")
             }
+            return
         }
-        val details = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-            .setData(Uri.parse("package:" + context.packageName))
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        if (runCatching { context.startActivity(details) }.isSuccess) {
-            call.resolve(JSObject().put("via", "app-details"))
+        val via = launchHealthConnectPermissionScreen()
+        if (via != null) {
+            call.resolve(JSObject().put("via", via))
+            return
+        }
+        call.reject("no-settings")
+    }
+
+    /**
+     * Honor/Huawei path: open Health Connect itself so the user can turn Gemak
+     * on there. Never waits on getOrCreate, never launches the hanging picker.
+     */
+    @PluginMethod
+    fun openHealthConnectPermissions(call: PluginCall) {
+        val via = launchHealthConnectPermissionScreen()
+        if (via != null) {
+            call.resolve(JSObject().put("via", via))
             return
         }
         call.reject("no-settings")
@@ -252,6 +318,11 @@ class HealthPlugin : Plugin() {
 
     @PluginMethod
     fun openPlayStore(call: PluginCall) {
+        if (HealthHuawei.shouldHandle(context)) {
+            if (HealthHuawei.openStore(context)) call.resolve()
+            else call.reject("no-store")
+            return
+        }
         val pkg = "com.google.android.apps.healthdata"
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$pkg"))
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -273,18 +344,35 @@ class HealthPlugin : Plugin() {
      *
      * getGrantedPermissions() is a suspend call on a bound service, and on
      * Honor/Huawei that bind can sit forever — so it runs on a throwaway thread
-     * behind a hard deadline like getOrCreate does. Returning an empty set on
-     * timeout is safe: every caller treats "nothing granted" as "ask again".
+     * behind a hard deadline like getOrCreate does. null means the bind timed
+     * out (no-bind), which is different from an empty grant set.
      */
     private fun grantedNow(ms: Long = 6_000): Set<String>? = runTimed(ms) {
         runBlocking {
-            HealthConnectClient.getOrCreate(context).permissionController.getGrantedPermissions()
+            val c = hcClient ?: HealthConnectClient.getOrCreate(context).also { hcClient = it }
+            c.permissionController.getGrantedPermissions()
         }
     }
 
     @PluginMethod
     fun checkAuthorization(call: PluginCall) {
-        scope.launch { call.resolve(grantedResult(grantedNow() ?: emptySet())) }
+        scope.launch {
+            if (HealthHuawei.shouldHandle(context)) {
+                call.resolve(HealthHuawei.checkAuthorization(context))
+                return@launch
+            }
+            val held = grantedNow()
+            if (held == null) call.reject("no-bind")
+            else call.resolve(grantedResult(held))
+        }
+    }
+
+    @PluginMethod
+    fun signOut(call: PluginCall) {
+        scope.launch {
+            if (HealthHuawei.shouldHandle(context)) HealthHuawei.signOut(context)
+            call.resolve()
+        }
     }
 
     /* -- the permission picker ------------------------------------------------
@@ -303,12 +391,20 @@ class HealthPlugin : Plugin() {
      */
     private var pendingCall: PluginCall? = null
     private var settled = true
+    private var pendingHuawei = false
     // The picker is another activity, so this app pauses when it opens. Resuming
     // without having paused means the picker never came up at all — which is a
     // different failure, and not one the resume path should answer.
     private var pausedSinceLaunch = false
     private val main = Handler(Looper.getMainLooper())
     private val watchdog = Runnable { settlePending("watchdog") }
+    // Honor/Huawei: the picker is another activity, so this app pauses when it
+    // opens. Resuming without having paused means it never came up — open Health
+    // Connect itself rather than waiting a minute and a half.
+    private val noPickerFallback = Runnable {
+        if (settled || pausedSinceLaunch) return@Runnable
+        launchHealthConnectPermissionScreen()
+    }
 
     @Synchronized
     private fun settlePending(@Suppress("UNUSED_PARAMETER") why: String) {
@@ -317,11 +413,24 @@ class HealthPlugin : Plugin() {
         settled = true
         pendingCall = null
         main.removeCallbacks(watchdog)
-        scope.launch { call.resolve(grantedResult(grantedNow() ?: emptySet())) }
+        main.removeCallbacks(noPickerFallback)
+        scope.launch {
+            if (pendingHuawei) {
+                call.resolve(HealthHuawei.checkAuthorization(context))
+                return@launch
+            }
+            val held = grantedNow()
+            if (held == null) call.reject("no-bind")
+            else call.resolve(grantedResult(held))
+        }
     }
 
     @PluginMethod
     fun requestAuthorization(call: PluginCall) {
+        if (HealthHuawei.shouldHandle(context)) {
+            launchHuaweiAuth(call)
+            return
+        }
         val wanted = requestedScopes(call).ifEmpty { scopeNames() }
         val perms = wanted.mapNotNull { permissionFor(it) }.toMutableSet()
         // Asked for in the same sheet as the data types rather than sending the
@@ -330,20 +439,60 @@ class HealthPlugin : Plugin() {
         if (call.getBoolean("requestHistoryAccess", false) == true) {
             perms.add(HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY)
         }
-        // Off Capacitor's handler thread: grantedNow blocks, and everything
-        // queued behind it on that thread would block with it.
-        scope.launch {
-            // Already granted from an earlier attempt the app never heard about —
-            // answer straight away rather than sending the user through the
-            // picker to be told what the platform already knows.
-            val held = grantedNow(4_000)
-            if (held != null && held.containsAll(perms - HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY)) {
-                call.resolve(grantedResult(held))
-                return@launch
+        // Do not call grantedNow first. Binding the client is a 4–8s stall on
+        // Honor/Huawei and is not required to launch the picker — or to open
+        // Health Connect's own permission screen, which is the path that works.
+        scope.launch { launchPicker(call, perms) }
+    }
+
+    private fun launchHuaweiAuth(call: PluginCall) {
+        val avail = HealthHuawei.availability(context)
+        if (!avail.optBoolean("available", false)) {
+            call.reject(avail.getString("reason") ?: "unavailable")
+            return
+        }
+        val held = HealthHuawei.checkAuthorization(context)
+        val already = held.optJSONArray("granted")
+        if (already != null && already.length() > 0) {
+            var hasHr = false
+            for (i in 0 until already.length()) {
+                if (already.optString(i) == "READ_HEART_RATE") hasHr = true
             }
-            // Do not wait for getOrCreate — the picker is an Intent, it does not
-            // need a bound client. Binding first is what left JS hanging.
-            launchPicker(call, perms)
+            if (hasHr) { call.resolve(held); return }
+        }
+        val act = activity
+        if (act == null) { call.reject("no-activity"); return }
+        val intent = HealthHuawei.authIntent(context)
+        if (intent == null) { call.reject("no-picker"); return }
+        synchronized(this) {
+            pendingCall = call
+            settled = false
+            pendingHuawei = true
+            pausedSinceLaunch = false
+        }
+        act.runOnUiThread {
+            try {
+                startActivityForResult(call, intent, "huaweiAuthResult")
+                main.postDelayed(watchdog, 25_000)
+            } catch (e: Throwable) {
+                synchronized(this) { settled = true; pendingCall = null; pendingHuawei = false }
+                call.reject("no-picker")
+            }
+        }
+    }
+
+    @ActivityCallback
+    fun huaweiAuthResult(call: PluginCall?, result: ActivityResult) {
+        val pending = call ?: pendingCall
+        if (settled && pending == null) return
+        settled = true
+        pendingCall = null
+        pendingHuawei = false
+        main.removeCallbacks(watchdog)
+        main.removeCallbacks(noPickerFallback)
+        val data = result.data
+        scope.launch {
+            (pending ?: call)?.resolve(HealthHuawei.parseAuth(context, data))
         }
     }
 
@@ -373,6 +522,7 @@ class HealthPlugin : Plugin() {
         synchronized(this) {
             pendingCall = call
             settled = false
+            pendingHuawei = false
             pausedSinceLaunch = false
         }
         // Capacitor plugin methods run on a background HandlerThread.
@@ -381,10 +531,15 @@ class HealthPlugin : Plugin() {
         act.runOnUiThread {
             try {
                 startActivityForResult(call, intent, "permissionResult")
-                // Long enough that a user reading the consent screen is not cut
-                // off, short enough that a picker which never opened does not
-                // look like a frozen app.
-                main.postDelayed(watchdog, 100_000)
+                val inProcess = intent.action?.contains("REQUEST_PERMISSIONS") == true
+                // Honor/Huawei: the picker almost never takes over the activity.
+                // After a couple of seconds open Health Connect itself. On a
+                // Pixel the system dialog is in-process and may not pause us —
+                // don't overlay Health Connect on top of a working sheet.
+                if (HealthHuawei.isHuaweiFamily() || !inProcess) {
+                    main.postDelayed(noPickerFallback, 2_500)
+                }
+                main.postDelayed(watchdog, 25_000)
             } catch (e: Throwable) {
                 synchronized(this) { settled = true; pendingCall = null }
                 if (!droppedHistory && perms.contains(HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY)) {
@@ -429,6 +584,7 @@ class HealthPlugin : Plugin() {
         val ret = JSObject()
         ret.put("granted", granted)
         ret.put("historyAccessAuthorized", held.contains(HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY))
+        ret.put("provider", "health-connect")
         return ret
     }
 
@@ -436,6 +592,7 @@ class HealthPlugin : Plugin() {
 
     @PluginMethod
     fun readHeartRate(call: PluginCall) {
+        if (huaweiRead(call) { HealthHuawei.readHeartRate(context, call) }) return
         val filter = range(call) ?: run { call.reject("bad-range"); return }
         val origins = originsOf(call)
         run(call) {
@@ -455,6 +612,7 @@ class HealthPlugin : Plugin() {
 
     @PluginMethod
     fun readRestingHeartRate(call: PluginCall) {
+        if (huaweiRead(call) { HealthHuawei.readRestingHeartRate(context, call) }) return
         val filter = range(call) ?: run { call.reject("bad-range"); return }
         val origins = originsOf(call)
         run(call) {
@@ -479,6 +637,7 @@ class HealthPlugin : Plugin() {
      */
     @PluginMethod
     fun readRecovery(call: PluginCall) {
+        if (huaweiRead(call) { HealthHuawei.readRecovery(context, call) }) return
         val filter = range(call) ?: run { call.reject("bad-range"); return }
         val origins = originsOf(call)
         run(call) {
@@ -502,6 +661,7 @@ class HealthPlugin : Plugin() {
 
     @PluginMethod
     fun readSleep(call: PluginCall) {
+        if (huaweiRead(call) { HealthHuawei.readSleep(context, call) }) return
         val filter = range(call) ?: run { call.reject("bad-range"); return }
         val origins = originsOf(call)
         run(call) {
@@ -526,6 +686,7 @@ class HealthPlugin : Plugin() {
 
     @PluginMethod
     fun readExerciseSessions(call: PluginCall) {
+        if (huaweiRead(call) { HealthHuawei.readExerciseSessions(context, call) }) return
         val filter = range(call) ?: run { call.reject("bad-range"); return }
         val origins = originsOf(call)
         run(call) {
@@ -558,6 +719,7 @@ class HealthPlugin : Plugin() {
 
     @PluginMethod
     fun aggregate(call: PluginCall) {
+        if (huaweiRead(call) { HealthHuawei.aggregate(context, call) }) return
         val filter = range(call) ?: run { call.reject("bad-range"); return }
         val origins = originsOf(call)
         val wanted = call.getArray("metrics")?.let { arr ->
@@ -565,7 +727,7 @@ class HealthPlugin : Plugin() {
         } ?: listOf("steps", "activeCalories", "totalCalories")
 
         run(call) {
-            val c = clientOrNull() ?: return@run JSObject()
+            val c = clientOrNull() ?: throw RuntimeException("no-bind")
             val metrics = mutableSetOf<AggregateMetric<*>>()
             if (wanted.contains("steps")) metrics.add(StepsRecord.COUNT_TOTAL)
             if (wanted.contains("activeCalories")) metrics.add(ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL)
@@ -600,6 +762,7 @@ class HealthPlugin : Plugin() {
      */
     @PluginMethod
     fun listOrigins(call: PluginCall) {
+        if (huaweiRead(call) { HealthHuawei.listOrigins(context, call) }) return
         val filter = range(call) ?: run { call.reject("bad-range"); return }
         run(call) {
             val pkgs = LinkedHashSet<String>()
@@ -628,7 +791,11 @@ class HealthPlugin : Plugin() {
     @PluginMethod
     fun diagnose(call: PluginCall) {
         scope.launch {
-            val out = JSObject()
+            if (HealthHuawei.shouldHandle(context)) {
+                call.resolve(HealthHuawei.diagnose(context))
+                return@launch
+            }
+            val out = JSObject().put("provider", "health-connect")
             out.put("sdkInt", Build.VERSION.SDK_INT)
             out.put("device", Build.MANUFACTURER + " " + Build.MODEL)
 
@@ -688,6 +855,8 @@ class HealthPlugin : Plugin() {
     companion object {
         /** Platform Health Connect, Android 14+. Not exposed by the androidx client. */
         const val ACTION_HEALTH_HOME_SETTINGS = "android.health.connect.action.HEALTH_HOME_SETTINGS"
+        const val ACTION_MANAGE_HEALTH_PERMISSIONS = "android.health.connect.action.MANAGE_HEALTH_PERMISSIONS"
+        const val ACTION_ANDROIDX_MANAGE_HEALTH_PERMISSIONS = "androidx.health.ACTION_MANAGE_HEALTH_PERMISSIONS"
 
         private val ASLEEP_STAGES = setOf(
             SleepSessionRecord.STAGE_TYPE_SLEEPING,

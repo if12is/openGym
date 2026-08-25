@@ -368,7 +368,7 @@ export function SessionBlock({ w }) {
   if (!session || session.state === 'pending') {
     return <div className="wnote" style={{ marginTop: 4 }}>
       <Icon name="watch" />
-      <div>{busy ? t('Checking your watch…') : t('Waiting on your watch — this fills in once Health Sync catches up.')}</div>
+      <div>{busy ? t('Checking your watch…') : t('Waiting on your watch — this fills in once Huawei Health catches up.')}</div>
     </div>
   }
 

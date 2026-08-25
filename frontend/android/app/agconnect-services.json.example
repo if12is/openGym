@@ -1,0 +1,12 @@
+{
+  "_comment": "Copy this file to agconnect-services.json (gitignored) after downloading it from AppGallery Connect → Project settings → General information. The real file contains your App ID; a placeholder will not sign in.",
+  "client": {
+    "app_id": "YOUR_HUAWEI_APP_ID",
+    "package_name": "ch.duartesantos.opengym"
+  },
+  "app_info": {
+    "app_id": "YOUR_HUAWEI_APP_ID",
+    "package_name": "ch.duartesantos.opengym"
+  },
+  "configuration_version": "3.0"
+}

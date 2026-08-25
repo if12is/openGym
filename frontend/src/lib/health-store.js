@@ -23,6 +23,7 @@
 //             to these, never to a population number.
 
 import { MOBILE } from './mobile.js'
+import { mapAvailabilityReason } from './health-reasons.js'
 
 const KEY = 'gym_health_v1'
 const FILE = 'opengym-health.json'
@@ -47,9 +48,10 @@ export const DEF_HEALTH = {
     grantedAt: null,
     lastSyncAt: null,
     history: false,      // READ_HEALTH_DATA_HISTORY — gates anything older than 30 days
-    origins: [],         // [{ pkg, label }] — who writes into Health Connect
+    origins: [],         // [{ pkg, label }] — who writes the data we read
     trusted: null,       // pkg the user picked, so the phone and the watch don't
                          // both get counted for the same steps
+    provider: null,      // 'huawei' | 'health-connect' — which native backend granted access
   },
   days: {},              // iso → { sleepMin, sleepEff, sleepEnd, rhr, steps, kcalActive, kcalTotal, spo2, src }
   sessions: {},          // workoutId → see health-sync.buildSession
@@ -181,14 +183,25 @@ export const READ_SCOPES = [
 ]
 
 let plugin = null
+let pluginResolved = false
 export async function healthPlugin() {
   if (!MOBILE) return null
-  if (plugin) return plugin
+  if (pluginResolved) return plugin
   try {
-    const { registerPlugin } = await import('@capacitor/core')
-    plugin = registerPlugin('Health')
-    return plugin
-  } catch (e) { return null }
+    const cap = await import('@capacitor/core')
+    // Vite with VITE_MOBILE=1 still runs on the web platform. Calling a custom
+    // plugin there never settles (or waits for our timeout), which left the
+    // Settings pull button spinning.
+    if (cap.Capacitor.getPlatform() === 'web') {
+      pluginResolved = true
+      return null
+    }
+    plugin = cap.registerPlugin('Health')
+  } catch (e) {
+    plugin = null
+  }
+  pluginResolved = true
+  return plugin
 }
 
 function withTimeout(p, ms, reason) {
@@ -204,28 +217,40 @@ function withTimeout(p, ms, reason) {
 function rejectReason(e, fallback = 'denied') {
   const msg = String(e?.code || e?.message || e || '')
   if (msg.includes('timeout')) return 'timeout'
+  if (msg.includes('not-configured')) return 'not-configured'
+  if (msg.includes('no-hms')) return 'no-hms'
+  if (msg.includes('no-health-app')) return 'no-health-app'
   if (msg.includes('no-picker') || msg.includes('no-activity')) return 'no-picker'
+  if (msg.includes('no-bind')) return 'no-bind'
   if (msg.includes('unavailable')) return 'unavailable'
   if (msg.includes('UNIMPLEMENTED') || msg.includes('not implemented')) return 'no-plugin'
   return fallback
 }
 
+export { mapAvailabilityReason } from './health-reasons.js'
+
 // Failures come back as a named reason rather than a thrown string, because each
 // one needs a different thing from the user:
-//   'no-plugin'   — native side isn't in this build
-//   'unavailable' — Health Connect isn't installed on this phone
-//   'update'      — installed but too old
-//   'denied'      — consent screen dismissed, or heart rate refused
-//   'timeout'     — native call never returned (Honor/Huawei bind hang)
-//   'no-picker'   — permission intent could not be launched
+//   'no-plugin'       — native side isn't in this build
+//   'unavailable'     — Health Connect isn't installed (GMS fallback)
+//   'update'          — Health Connect installed but too old
+//   'denied'          — consent screen dismissed, or heart rate refused
+//   'timeout'         — native call never returned
+//   'no-picker'       — permission intent could not be launched
+//   'no-bind'         — Health Connect store is there but the client never bound
+//   'need-permission' — user has not allowed Gemak in Health Connect yet
+//   'no-hms'          — HMS Core missing
+//   'no-health-app'   — Huawei Health isn't installed
+//   'not-configured'  — AppGallery Connect App ID not baked into this APK
 export async function checkAvailability() {
   const p = await healthPlugin()
   if (!p) return { ok: false, reason: 'no-plugin' }
   try {
     const r = await withTimeout(p.isAvailable(), 10000, 'timeout')
-    if (r?.available) return { ok: true }
-    if (r?.reason === 'timeout') return { ok: false, reason: 'timeout' }
-    return { ok: false, reason: r?.reason === 'update-required' ? 'update' : 'unavailable' }
+    const provider = r?.provider || 'health-connect'
+    if (r?.available) return { ok: true, provider }
+    if (r?.reason === 'timeout') return { ok: false, reason: 'timeout', provider }
+    return { ok: false, reason: mapAvailabilityReason(r?.reason), provider }
   } catch (e) { return { ok: false, reason: rejectReason(e, 'timeout') } }
 }
 
@@ -236,16 +261,12 @@ export async function connectWatch(deviceLabel) {
   const p = await healthPlugin()
   let res
   try {
-    // Long, but finite. The picker is a system screen and a user can genuinely
-    // take a minute on it — but "native rejects quickly if it never opens" is
-    // not true on every device: the picker can be launched, grant access, and
-    // never deliver a result, leaving this promise pending forever and the
-    // button stuck on "Waiting for Health Connect…" with no way out.
-    // On timeout the sheet tells the user to allow it from Health Connect
-    // directly, and the resume check picks the grant up either way.
+    // Finite. Honor/Huawei often never return from the picker; Settings now
+    // opens Health Connect itself for the grant, and the pull button only reads.
+    // This timeout is a backstop if something still calls connectWatch.
     res = await withTimeout(
       p.requestAuthorization({ read: READ_SCOPES, requestHistoryAccess: true }),
-      180000, 'timeout',
+      25000, 'timeout',
     )
   } catch (e) {
     // The picker may have granted access and simply failed to say so. Ask the
@@ -265,14 +286,16 @@ export async function connectWatch(deviceLabel) {
     return { ok: false, reason: 'denied', granted }
   }
 
+  const provider = res?.provider || avail.provider || 'health-connect'
   updateConn(c => {
     c.state = 'ok'
     c.granted = granted
     c.grantedAt = Date.now()
-    c.history = !!res?.historyAccessAuthorized
+    c.history = provider === 'huawei' ? true : !!res?.historyAccessAuthorized
     c.deviceLabel = deviceLabel || c.deviceLabel
+    c.provider = provider
   })
-  return { ok: true, granted }
+  return { ok: true, granted, provider }
 }
 
 // Called on every resume. Health Connect withdraws permissions silently after a
@@ -282,10 +305,14 @@ export async function refreshLinkState() {
   const p = await healthPlugin()
   if (!p) return state.conn.state
   let granted
+  let provider
   try {
     const res = await withTimeout(p.checkAuthorization({ read: READ_SCOPES }), 10000, 'timeout')
     granted = res?.granted || []
+    provider = res?.provider
   } catch (e) {
+    const r = rejectReason(e, 'timeout')
+    if (r === 'no-bind') return 'no-bind'
     return state.conn.state   // leave the last known state rather than guess
   }
   const ok = granted.includes('READ_HEART_RATE')
@@ -305,17 +332,24 @@ export async function refreshLinkState() {
       c.state = 'ok'
       c.granted = granted
       c.grantedAt = c.grantedAt || Date.now()
+      if (provider) c.provider = provider
+      if (provider === 'huawei') c.history = true
     })
     return 'ok'
   }
 
-  updateConn(c => { c.state = ok ? 'ok' : 'revoked'; c.granted = granted })
+  updateConn(c => {
+    c.state = ok ? 'ok' : 'revoked'
+    c.granted = granted
+    if (provider) c.provider = provider
+  })
   return state.conn.state
 }
 
 // Unlinking drops what came from the watch. It never touches the training log —
 // those are the user's own entries and have nothing to do with the device.
 export function disconnectWatch() {
+  healthPlugin().then(p => p?.signOut?.()).catch(() => {})
   updateHealth(h => {
     h.conn = { ...clone(DEF_HEALTH.conn) }
     h.days = {}
@@ -328,9 +362,70 @@ export async function openHealthConnectSettings() {
   const p = await healthPlugin()
   if (!p) return false
   try {
+    // Always prefer the Health Connect permission screen. Honor/Huawei with
+    // Health Sync need that store, not Huawei Health. Kit still has its own
+    // openSettings when the native side is on that backend.
+    if (typeof p.openHealthConnectPermissions === 'function' && getConn().provider !== 'huawei') {
+      await withTimeout(p.openHealthConnectPermissions(), 8000, 'timeout')
+      return true
+    }
     await withTimeout(p.openSettings(), 8000, 'timeout')
     return true
   } catch (e) { return false }
+}
+
+/**
+ * Opens Health Connect itself (per-app permission page when the OS has one).
+ * This is the Honor/Huawei grant path: the in-app picker never appears there,
+ * so Settings asks Health Connect directly and the pull button only reads.
+ */
+export async function openHealthConnectPermissions() {
+  const p = await healthPlugin()
+  if (!p) return false
+  try {
+    if (typeof p.openHealthConnectPermissions === 'function') {
+      await withTimeout(p.openHealthConnectPermissions(), 8000, 'timeout')
+      return true
+    }
+    await withTimeout(p.openSettings(), 8000, 'timeout')
+    return true
+  } catch (e) { return false }
+}
+
+/**
+ * Read what is already granted. Does not launch a permission picker — Honor
+ * and Huawei hang on that sheet. Allow from Health Connect first.
+ */
+export async function pullWatchData(days = 2) {
+  const p = await healthPlugin()
+  if (!p) return { ok: false, reason: 'no-plugin' }
+  // Fresh grant check. refreshLinkState keeps the last 'ok' when the native
+  // call times out, which would then send us into a sync that never returns
+  // on Honor/Huawei (and in the web shell, where Health is unimplemented).
+  let granted
+  try {
+    const res = await withTimeout(p.checkAuthorization({ read: READ_SCOPES }), 10000, 'timeout')
+    granted = res?.granted || []
+  } catch (e) {
+    return { ok: false, reason: rejectReason(e, 'timeout') }
+  }
+  if (!granted.includes('READ_HEART_RATE')) {
+    return { ok: false, reason: 'need-permission' }
+  }
+  updateConn(c => {
+    c.state = 'ok'
+    c.granted = granted
+    c.grantedAt = c.grantedAt || Date.now()
+    c.provider = c.provider || 'health-connect'
+    if (!c.deviceLabel) c.deviceLabel = 'Huawei Watch Fit 4'
+  })
+  try {
+    const m = await import('./health-sync.js')
+    const n = await m.syncRecentDays(days)
+    return { ok: true, days: n }
+  } catch (e) {
+    return { ok: false, reason: rejectReason(e, 'error') }
+  }
 }
 
 /**

@@ -28,6 +28,10 @@
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
 
+        <meta-data
+            android:name="com.huawei.hms.client.appid"
+            android:value="appid=${HUAWEI_APP_ID}" />
+
         <!-- Health Connect requires the app to be able to explain, from the consent
              screen itself, what it does with health data. Two entry points, because
              the platform changed how it asks between versions:
@@ -64,6 +68,10 @@
          availability check reports "missing" on a phone that has it. -->
     <queries>
         <package android:name="com.google.android.apps.healthdata" />
+        <package android:name="com.huawei.health" />
+        <package android:name="com.hihonor.health" />
+        <package android:name="com.huawei.hwid" />
+        <package android:name="com.huawei.hmscore" />
         <!-- The action the androidx client actually builds its picker intent
              with on Android 13 and below. It is ACTION_REQUEST_PERMISSIONS, not
              ACTION_REQUEST_HEALTH_PERMISSIONS — the longer name is the one in
@@ -79,11 +87,23 @@
         <intent>
             <action android:name="androidx.health.ACTION_HEALTH_CONNECT_SETTINGS" />
         </intent>
+        <!-- Per-app permission screen. Honor/Huawei often never show the in-app
+             picker, so Settings opens this instead. -->
+        <intent>
+            <action android:name="android.health.connect.action.MANAGE_HEALTH_PERMISSIONS" />
+        </intent>
+        <intent>
+            <action android:name="androidx.health.ACTION_MANAGE_HEALTH_PERMISSIONS" />
+        </intent>
+        <intent>
+            <action android:name="android.health.connect.action.HEALTH_HOME_SETTINGS" />
+        </intent>
     </queries>
 
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Workout-day reminder: lets the local-notifications plugin fire at the exact minute
          on Android 12+. Where it isn't granted, scheduling silently falls back to inexact
