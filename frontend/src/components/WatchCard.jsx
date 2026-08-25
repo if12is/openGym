@@ -49,32 +49,41 @@ function DiagnoseSheet({ toast }) {
 
   const bridgeRows = b ? [
     [t('Platform'), `${b.platform || '—'}${b.native ? '' : ' · ' + t('not native')}`],
+    [t('Mobile build'), b.mobileBuild ? t('Yes') : t('No')],
     [t('Plugins the bridge exposes'), (b.plugins || []).join(', ') || t('none')],
     [t('Health plugin registered'), b.healthRegistered ? t('Yes') : t('No')],
-    [t('Update plugin registered'), b.appUpdateRegistered ? t('Yes') : t('No')],
+    // The method list is what decides whether a call is even attempted: anything
+    // missing from here rejects as "not implemented" before it reaches native.
+    [t('Health plugin methods'), (b.healthMethods || []).join(', ') || t('none')],
+    [t('Update plugin methods'), (b.appUpdateMethods || []).join(', ') || t('none')],
     [t('Health plugin answers'), b.healthProbe || '—'],
     [t('Update plugin answers'), b.appUpdateProbe || '—'],
+    [t('Full check answers'), b.diagnoseProbe || '—'],
   ] : []
 
-  const huawei = d && !d.error && d.provider === 'huawei'
-  const rows = d && !d.error ? [
-    [t('Phone'), `${d.device} · Android SDK ${d.sdkInt}`],
+  // Prefer the store's readout, fall back to the one the bridge report took
+  // directly off the plugin — so this section fills in even when the store
+  // cannot produce a handle.
+  const data = d && !d.error ? d : (b?.diagnose || null)
+  const huawei = data?.provider === 'huawei'
+  const rows = data ? [
+    [t('Phone'), `${data.device} · Android SDK ${data.sdkInt}`],
     [t('Health source'), huawei ? t('Huawei Health Kit') : t('Health Connect')],
     huawei
-      ? [t('HMS Core'), d.hmsAvailable ? t('Works') : t('Missing')]
-      : [t('Health Connect'), `${d.sdkStatusText} (${d.sdkStatus})`],
+      ? [t('HMS Core'), data.hmsAvailable ? t('Works') : t('Missing')]
+      : [t('Health Connect'), `${data.sdkStatusText} (${data.sdkStatus})`],
     huawei
-      ? [t('Huawei Health installed'), d.huaweiHealthInstalled ? t('Yes') : t('No')]
-      : [t('Provider app installed'), d.providerInstalled ? t('Yes') : t('No — built into Android')],
-    huawei ? [t('App ID in this build'), d.appIdConfigured ? t('Yes') : t('No')] : null,
+      ? [t('Huawei Health installed'), data.huaweiHealthInstalled ? t('Yes') : t('No')]
+      : [t('Provider app installed'), data.providerInstalled ? t('Yes') : t('No — built into Android')],
+    huawei ? [t('App ID in this build'), data.appIdConfigured ? t('Yes') : t('No')] : null,
     huawei
-      ? [t('Huawei Health authorised'), d.healthAuthorized ? t('Yes') : t('No')]
-      : [t('Health permissions in this build'), String(d.declaredHealthPermissions)],
-    [t('Permission screen'), d.pickerAction],
-    [t('Resolves to an app'), d.pickerResolves ? t('Yes') : t('No — handled inside Android')],
-    [t('Data connection'), d.clientBinds ? t('Works') : t('Timed out')],
-    [t('Allowed right now'), d.grantedCount < 0 ? t('Could not read') : String(d.grantedCount)],
-    [t('Allowed types'), (d.granted || []).join(', ') || '—'],
+      ? [t('Huawei Health authorised'), data.healthAuthorized ? t('Yes') : t('No')]
+      : [t('Health permissions in this build'), String(data.declaredHealthPermissions)],
+    [t('Permission screen'), data.pickerAction],
+    [t('Resolves to an app'), data.pickerResolves ? t('Yes') : t('No — handled inside Android')],
+    [t('Data connection'), data.clientBinds ? t('Works') : t('Timed out')],
+    [t('Allowed right now'), data.grantedCount < 0 ? t('Could not read') : String(data.grantedCount)],
+    [t('Allowed types'), (data.granted || []).join(', ') || '—'],
   ].filter(Boolean) : []
 
   const all = [...bridgeRows, ...rows]
@@ -110,7 +119,9 @@ function DiagnoseSheet({ toast }) {
 
     <div style={{ height: 12 }} />
     <p className="muted small" style={{ margin: '4px 0 6px' }}>{t('Health Connect')}</p>
-    {!d && <div className="wnote"><Icon name="reset" /><div>{t('Checking…')}</div></div>}
+    {!d && !data && <div className="wnote"><Icon name="reset" /><div>{t('Checking…')}</div></div>}
+    {/* Shown even when the rows below filled in from the direct probe: that
+        combination — store failed, plugin answered — is itself the finding. */}
     {d?.error && (
       <div className="wnote"><Icon name="info" /><div>{t('The check itself failed: {0}', d.error)}</div></div>
     )}

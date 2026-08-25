@@ -451,15 +451,24 @@ export async function diagnoseHealth() {
   // healthPlugin() awaits a dynamic import, which is a chunk fetch on the mobile
   // build — bounded like everything else, because an unbounded await here is
   // what left the check itself sitting on "Checking…".
-  try { p = await withTimeout(healthPlugin(), 5000, 'timeout') } catch (e) { return { error: 'no-plugin' } }
-  if (!p) return { error: 'no-plugin' }
   try {
-    // 20s, not 40: every step inside diagnose() is separately timed out on the
-    // native side and the whole thing cannot legitimately take longer than that.
-    // Past it, the call never reached the method body at all.
+    p = await withTimeout(healthPlugin(), 5000, 'timeout')
+  } catch (e) {
+    return { error: 'could not get the plugin handle: ' + (e?.message || e) }
+  }
+  // These two used to collapse into the same 'no-plugin' code, which is why it
+  // took an extra round to tell them apart: "the handle is null" and "the method
+  // rejected as unimplemented" need completely different fixes.
+  if (!p) return { error: `handle is null (mobile=${MOBILE}, platform=${Capacitor.getPlatform()})` }
+  try {
+    // 20s: every step inside diagnose() is separately timed out on the native
+    // side, so past this the call never reached the method body at all.
     return await withTimeout(p.diagnose(), 20000, 'timeout')
   } catch (e) {
-    return { error: rejectReason(e, 'timeout') }
+    // Raw, not mapped. rejectReason() exists to pick a recovery path for the
+    // user, and it turned "Health.diagnose() is not implemented" into
+    // 'no-plugin' — the one screen where the actual text is the whole point.
+    return { error: String(e?.message || e?.code || e).slice(0, 200) }
   }
 }
 

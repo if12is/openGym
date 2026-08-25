@@ -80,5 +80,14 @@ export async function bridgeReport() {
   out.appUpdateProbe = u.state === 'ok'
     ? `answered (${u.value?.versionName} ${u.value?.versionCode})`
     : u.state === 'timeout' ? 'never answered' : u.message
+
+  // The full Health Connect readout, taken straight off the plugin instead of
+  // through health-store. That module is the layer that kept failing to produce
+  // a handle, and a diagnostic routed through the thing it is diagnosing is how
+  // this went several rounds without saying anything useful. If this answers
+  // while the store reports an error, the fault is above the bridge.
+  const dg = await probe(() => H.diagnose(), 20000)
+  out.diagnoseProbe = dg.state === 'ok' ? 'answered' : dg.state === 'timeout' ? 'never answered' : dg.message
+  if (dg.state === 'ok') out.diagnose = dg.value
   return out
 }
