@@ -326,8 +326,8 @@ export default function WatchCard({ toast }) {
       }
       if (res.reason === 'need-permission' || res.reason === 'denied') {
         toast(t('Allow Gemak from Health Connect first, then pull.'))
-      } else if (res.reason === 'no-bind') {
-        toast(t('Health Connect didn’t respond. Allow Gemak from Health Connect itself, then pull.'))
+      } else if (res.reason === 'no-bind' || res.reason === 'timeout' || res.reason === 'no-plugin') {
+        toast(t('Allow Gemak from Health Connect first, then pull.'))
       } else {
         toast(t('Could not read earlier days'))
       }

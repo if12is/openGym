@@ -386,12 +386,25 @@ export async function openHealthConnectPermissions() {
  * and Huawei hang on that sheet. Allow from Health Connect first.
  */
 export async function pullWatchData(days = 2) {
-  const state = await refreshLinkState()
-  if (state === 'no-bind') return { ok: false, reason: 'no-bind' }
-  if (state !== 'ok') {
-    return { ok: false, reason: state === 'revoked' ? 'denied' : 'need-permission' }
+  const p = await healthPlugin()
+  if (!p) return { ok: false, reason: 'no-plugin' }
+  // Fresh grant check. refreshLinkState keeps the last 'ok' when the native
+  // call times out, which would then send us into a sync that never returns
+  // on Honor/Huawei (and in the web shell, where Health is unimplemented).
+  let granted
+  try {
+    const res = await withTimeout(p.checkAuthorization({ read: READ_SCOPES }), 10000, 'timeout')
+    granted = res?.granted || []
+  } catch (e) {
+    return { ok: false, reason: rejectReason(e, 'timeout') }
+  }
+  if (!granted.includes('READ_HEART_RATE')) {
+    return { ok: false, reason: 'need-permission' }
   }
   updateConn(c => {
+    c.state = 'ok'
+    c.granted = granted
+    c.grantedAt = c.grantedAt || Date.now()
     c.provider = c.provider || 'health-connect'
     if (!c.deviceLabel) c.deviceLabel = 'Huawei Watch Fit 4'
   })

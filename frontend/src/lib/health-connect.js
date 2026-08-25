@@ -22,16 +22,28 @@ import { healthPlugin, getConn } from './health-store.js'
 // by the `ok` flag rather than by an empty array.
 const fail = reason => ({ ok: false, reason })
 
+function withTimeout(p, ms, reason = 'timeout') {
+  return new Promise((resolve, reject) => {
+    const id = setTimeout(() => reject(Object.assign(new Error(reason), { code: reason })), ms)
+    Promise.resolve(p).then(
+      v => { clearTimeout(id); resolve(v) },
+      e => { clearTimeout(id); reject(e) },
+    )
+  })
+}
+
 async function call(method, args = {}) {
   const p = await healthPlugin()
   if (!p || typeof p[method] !== 'function') return fail('no-plugin')
   try {
-    const res = await p[method](args)
+    const res = await withTimeout(p[method](args), 12000, 'timeout')
     return { ok: true, ...res }
   } catch (e) {
     const msg = String(e?.message || e?.code || e || '')
     if (msg.includes('not-authorized')) return fail('denied')
     if (msg.includes('no-bind')) return fail('no-bind')
+    if (msg.includes('timeout')) return fail('timeout')
+    if (msg.includes('UNIMPLEMENTED') || msg.includes('not implemented')) return fail('no-plugin')
     return fail('error')
   }
 }
