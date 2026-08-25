@@ -14,19 +14,25 @@ const APK_META = 'updates/gemak-latest.json'
 const PROGRESS_META = 'updates/gemak-latest.progress.json'
 const BATCH = 256 * 1024
 
+// Static, not dynamic — see the note in health-store.js. @capacitor/core is its
+// own chunk, and fetching it during boot (which is when this check runs) left
+// the promise pending forever: the card sat on "Checking…" with no version and
+// no error, and no native call was ever made.
+import { Capacitor, registerPlugin } from '@capacitor/core'
+
 let plugin = null
-async function appUpdatePlugin() {
+function appUpdatePlugin() {
   if (!MOBILE) return null
   if (plugin) return plugin
-  try {
-    const { registerPlugin } = await import('@capacitor/core')
-    plugin = registerPlugin('AppUpdate')
-    return plugin
-  } catch { return null }
+  if (Capacitor.getPlatform() === 'web') return null
+  plugin = registerPlugin('AppUpdate')
+  return plugin
 }
 
+// Left dynamic so web builds don't ship it, but bounded: this also resolves to a
+// chunk fetch, and getPendingInstall() runs during the boot check.
 async function fs() {
-  return import('@capacitor/filesystem')
+  return withTimeout(import('@capacitor/filesystem'), 8000, 'timeout')
 }
 
 // Nothing here awaits a native call without a deadline.
@@ -53,8 +59,7 @@ const builtVersion = () => ({
 })
 
 export async function getInstalledVersion() {
-  let p = null
-  try { p = await withTimeout(appUpdatePlugin(), 4000, 'plugin-timeout') } catch { /* below */ }
+  const p = appUpdatePlugin()
   if (p) {
     try {
       const v = await withTimeout(p.getAppVersion(), 5000, 'timeout')
@@ -74,8 +79,7 @@ export async function getInstalledVersion() {
 //
 // The fetch path stays for `npm run dev` in a browser, where there is no plugin.
 export async function fetchRemoteManifest() {
-  let p = null
-  try { p = await withTimeout(appUpdatePlugin(), 4000, 'plugin-timeout') } catch { /* handled below */ }
+  const p = appUpdatePlugin()
   if (p) {
     try {
       // 40s: the native side already uses 15s connect / 30s read, so this only
@@ -179,7 +183,7 @@ export async function getPartialDownload() {
 // Returns the finished meta, or null when the native side cannot do it (an older
 // APK) so the caller falls through to the JS download rather than failing.
 async function tryNativeDownload(remote, notify) {
-  const p = await appUpdatePlugin()
+  const p = appUpdatePlugin()
   if (!p) return null
   const { Filesystem, Directory } = await fs()
 
@@ -402,7 +406,7 @@ export async function installPendingUpdate() {
   if (!MOBILE) throw new Error('mobile only')
   const { Filesystem, Directory } = await fs()
   const stat = await Filesystem.stat({ path: APK_PATH, directory: Directory.Cache })
-  const p = await appUpdatePlugin()
+  const p = appUpdatePlugin()
   if (!p?.installApk) throw new Error(t('Install not available'))
   await p.installApk({ uri: stat.uri })
 }

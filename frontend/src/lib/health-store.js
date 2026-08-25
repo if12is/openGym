@@ -182,25 +182,32 @@ export const READ_SCOPES = [
   'READ_HEART_RATE_VARIABILITY',
 ]
 
+// Statically imported, and that is load-bearing.
+//
+// @capacitor/core is its own Vite chunk, so `await import('@capacitor/core')`
+// is a network fetch through the service worker, not a function call. At boot
+// — which is exactly when the update check and the health boot run — that
+// fetch competes with the rest of the app's chunks while the service worker is
+// still activating, and it does not come back. Every caller then sat on a
+// promise that never settled, so nothing was ever called natively at all: no
+// version, no permission picker, no update check.
+//
+// The bridge itself was never the problem. A connection check on the device
+// showed both plugins registered and both answering, at a moment when the chunk
+// happened to already be loaded. A static import removes the fetch, so the
+// plugin is there before any of this module's code runs.
+import { Capacitor, registerPlugin } from '@capacitor/core'
+
 let plugin = null
-let pluginResolved = false
 export async function healthPlugin() {
   if (!MOBILE) return null
-  if (pluginResolved) return plugin
-  try {
-    const cap = await import('@capacitor/core')
-    // Vite with VITE_MOBILE=1 still runs on the web platform. Calling a custom
-    // plugin there never settles (or waits for our timeout), which left the
-    // Settings pull button spinning.
-    if (cap.Capacitor.getPlatform() === 'web') {
-      pluginResolved = true
-      return null
-    }
-    plugin = cap.registerPlugin('Health')
-  } catch (e) {
-    plugin = null
-  }
-  pluginResolved = true
+  if (plugin) return plugin
+  // Vite with VITE_MOBILE=1 still runs on the web platform during `npm run dev`.
+  // Calling a custom plugin there never settles, which left the Settings pull
+  // button spinning. Checked per call rather than cached: caching a null here
+  // meant one early miss disabled the plugin for the rest of the session.
+  if (Capacitor.getPlatform() === 'web') return null
+  plugin = registerPlugin('Health')
   return plugin
 }
 

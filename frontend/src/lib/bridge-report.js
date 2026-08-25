@@ -4,20 +4,20 @@
 // plugin, so when that plugin was the thing failing, the check hung with it and
 // reported nothing at all. This asks the bridge instead.
 //
-// It is worth knowing exactly what can go wrong on the native side, because two
-// of the three outcomes are silent:
+// What it found, the first time it ran on the affected phone: both plugins
+// registered, both answering, the bridge entirely healthy. The failures were on
+// the JS side of it — a plugin handle that was never obtained, so no native call
+// was ever made. Keeping this report is worth it precisely because it ruled the
+// native side out in one screenshot instead of another round of guesses.
 //
-//   · the plugin is not registered      → JS throws "not implemented", fast
-//   · the plugin is registered but the method lookup fails
-//     (PluginLoadException / InvalidPluginMethodException) → Bridge.java logs it
-//     and returns without resolving or rejecting the call. The JS promise stays
-//     pending forever. There is no timeout anywhere in Capacitor for this.
-//   · the method runs and never calls resolve() → same pending promise
-//
-// Only the first is visible from JS as an error. The other two are why every
-// probe here is bounded and reports 'timeout' as a result rather than throwing:
-// a diagnostic that can hang is worse than no diagnostic.
+// Every probe is still bounded and reports 'timeout' as a result rather than
+// throwing. Bridge.java's callPluginMethod catches PluginLoadException and
+// InvalidPluginMethodException, logs them, and returns without resolving or
+// rejecting — so a plugin whose method lookup fails leaves a JS promise pending
+// for the life of the process, with no timeout anywhere in Capacitor to catch
+// it. A diagnostic that can hang is worse than no diagnostic.
 
+import { Capacitor, registerPlugin } from '@capacitor/core'
 import { MOBILE } from './mobile.js'
 
 // Resolves, never rejects — the outcome is the data.
@@ -36,13 +36,6 @@ function probe(run, ms = 6000) {
   })
 }
 
-async function core() {
-  // Even the module load is bounded: it is a separate chunk on the mobile build,
-  // so it is a fetch through the service worker, not a function call.
-  const r = await probe(() => import('@capacitor/core'), 5000)
-  return r.state === 'ok' ? r.value : null
-}
-
 /**
  * `window.Capacitor.PluginHeaders` is injected by the native bridge from the
  * plugins it actually managed to register (JSExport.getPluginJS). It is the
@@ -50,17 +43,13 @@ async function core() {
  * every method name each plugin advertises — so a method missing from here is a
  * method that will hang if called.
  */
-function headersOf(Capacitor) {
+function headersOf() {
   const raw = (typeof window !== 'undefined' && window.Capacitor?.PluginHeaders) || Capacitor?.PluginHeaders
   return Array.isArray(raw) ? raw : null
 }
 
 export async function bridgeReport() {
   const out = { mobileBuild: !!MOBILE }
-  const cap = await core()
-  if (!cap) { out.error = 'capacitor-core-unreachable'; return out }
-
-  const { Capacitor, registerPlugin } = cap
   out.platform = Capacitor?.getPlatform?.() || 'unknown'
   out.native = !!Capacitor?.isNativePlatform?.()
 
