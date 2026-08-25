@@ -831,6 +831,8 @@ export default {
   'Put the expensive ones early. The percentage is share of your heart-rate reserve, so it compares fairly across people and days.': 'حطّ التقيلة بدري. النسبة دي من احتياطي نبضك، فبتقارن بعدل بين الأيام وبين الناس.',
 
   'Checking for updates…': 'بندوّر على تحديث…',
+  'I allowed it — check again': 'أنا سمحت خلاص — اتأكد تاني',
+  'Still no access — allow Gemak from Health Connect': 'لسه مفيش صلاحية — اسمح لچيمك من Health Connect',
   'Density': 'الكثافة',
   '/min': '/د',
 

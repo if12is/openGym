@@ -236,17 +236,34 @@ export async function connectWatch(deviceLabel) {
   const p = await healthPlugin()
   let res
   try {
-    // No short timeout here: once the system picker is on screen the user
-    // can take a minute. Native rejects quickly if the picker never opens.
-    res = await p.requestAuthorization({ read: READ_SCOPES, requestHistoryAccess: true })
+    // Long, but finite. The picker is a system screen and a user can genuinely
+    // take a minute on it — but "native rejects quickly if it never opens" is
+    // not true on every device: the picker can be launched, grant access, and
+    // never deliver a result, leaving this promise pending forever and the
+    // button stuck on "Waiting for Health Connect…" with no way out.
+    // On timeout the sheet tells the user to allow it from Health Connect
+    // directly, and the resume check picks the grant up either way.
+    res = await withTimeout(
+      p.requestAuthorization({ read: READ_SCOPES, requestHistoryAccess: true }),
+      180000, 'timeout',
+    )
   } catch (e) {
+    // The picker may have granted access and simply failed to say so. Ask the
+    // platform before reporting a failure the user can see is wrong.
+    if (await refreshLinkState() === 'ok') return { ok: true, granted: getConn().granted }
     return { ok: false, reason: rejectReason(e, 'denied') }
   }
 
   const granted = res?.granted || []
   // Heart rate is the one scope nothing degrades gracefully without — a session
   // with no pulse trace has nothing to show. Everything else is additive.
-  if (!granted.includes('READ_HEART_RATE')) return { ok: false, reason: 'denied', granted }
+  // Some providers hand back an empty set from the result contract even when the
+  // grant went through, so an apparent refusal is double-checked against what is
+  // actually held before it is reported as one.
+  if (!granted.includes('READ_HEART_RATE')) {
+    if (await refreshLinkState() === 'ok') return { ok: true, granted: getConn().granted }
+    return { ok: false, reason: 'denied', granted }
+  }
 
   updateConn(c => {
     c.state = 'ok'
@@ -262,15 +279,37 @@ export async function connectWatch(deviceLabel) {
 // month of not opening the app, so a stored `state: 'ok'` is a claim to re-check,
 // not a fact to trust.
 export async function refreshLinkState() {
-  if (state.conn.state === 'off') return 'off'
   const p = await healthPlugin()
   if (!p) return state.conn.state
+  let granted
   try {
-    const res = await p.checkAuthorization({ read: READ_SCOPES })
-    const granted = res?.granted || []
-    const ok = granted.includes('READ_HEART_RATE')
-    updateConn(c => { c.state = ok ? 'ok' : 'revoked'; c.granted = granted })
-  } catch (e) { /* leave the last known state rather than guess */ }
+    const res = await withTimeout(p.checkAuthorization({ read: READ_SCOPES }), 10000, 'timeout')
+    granted = res?.granted || []
+  } catch (e) {
+    return state.conn.state   // leave the last known state rather than guess
+  }
+  const ok = granted.includes('READ_HEART_RATE')
+
+  // This runs on every resume, and it is deliberately allowed to promote a link
+  // that was never confirmed.
+  //
+  // The permission picker is a system activity, and on some devices it grants
+  // access and then never delivers a result back — the callback is simply lost.
+  // Before this, that left the app saying "not linked" while Health Connect said
+  // it had access, with no way out but unlinking and trying again. Asking the
+  // platform what is actually granted makes the whole flow self-healing: come
+  // back to the app and it has caught up, however the picker behaved.
+  if (state.conn.state === 'off') {
+    if (!ok) return 'off'
+    updateConn(c => {
+      c.state = 'ok'
+      c.granted = granted
+      c.grantedAt = c.grantedAt || Date.now()
+    })
+    return 'ok'
+  }
+
+  updateConn(c => { c.state = ok ? 'ok' : 'revoked'; c.granted = granted })
   return state.conn.state
 }
 

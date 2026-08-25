@@ -115,6 +115,25 @@ function SetupSheet({ close, toast }) {
       </div>
     )}
 
+    {/* The escape hatch. Some devices grant access in the picker and never
+        deliver the result back, so the app can be told nothing while Health
+        Connect already says yes. This asks the platform directly. */}
+    {problem && (
+      <>
+        <div style={{ height: 10 }} />
+        <Button icon="reset" onClick={async () => {
+          if (await refreshLinkState() === 'ok') {
+            close()
+            toast(t('Watch connected'))
+            syncNowAsync()
+            rememberOrigins()
+          } else {
+            toast(t('Still no access — allow Gemak from Health Connect'))
+          }
+        }}>{t('I allowed it — check again')}</Button>
+      </>
+    )}
+
     <div style={{ height: 6 }} />
     <Button variant="primary" icon="watch" disabled={busy} onClick={go}>
       {busy ? t('Waiting for Health Connect…') : t('Allow access')}

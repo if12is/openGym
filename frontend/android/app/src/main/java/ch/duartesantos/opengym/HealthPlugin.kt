@@ -270,6 +270,18 @@ class HealthPlugin : Plugin() {
             call.reject("no-picker")
             return
         }
+        // Refuse to launch into a void. If nothing on the device handles the
+        // picker intent, startActivityForResult can still "succeed" and simply
+        // never deliver a result — which left JS waiting forever instead of
+        // being told the picker is not there.
+        if (act.packageManager.resolveActivity(intent, 0) == null) {
+            if (!droppedHistory && perms.contains(HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY)) {
+                launchPicker(call, perms - HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY, true)
+                return
+            }
+            call.reject("no-picker")
+            return
+        }
         // Capacitor plugin methods run on a background HandlerThread.
         // ActivityResultLauncher.launch() must be called on the main thread;
         // Honor/Huawei otherwise swallow the start and never deliver a result.
