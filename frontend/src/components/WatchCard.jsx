@@ -1,20 +1,18 @@
 // Settings → Watch & health.
 //
-// The card leads with the device rather than with a toggle, because pairing goes
-// wrong at "which watch, which app", not at the permission grant. Three states,
-// each with something to do: nothing linked, linked, and linked-but-access-was
-// withdrawn. Huawei Health Kit is the default path: the user signs in with a
-// Huawei ID and Huawei Health authorises the read. Health Connect remains a
-// fallback on GMS phones.
+// Two actions, kept apart because Honor/Huawei hang if they are combined:
+//   · Allow from Health Connect — opens Health Connect so the user can turn
+//     Gemak on there (the in-app picker never appears on those phones)
+//   · Pull watch data — only reads. No permission sheet.
 
 import { useEffect, useState } from 'react'
 import { useUI } from '../store/useUI.js'
 import { t } from '../lib/i18n.js'
 import { fmtDate, isoOf } from '../lib/format.js'
 import {
-  getConn, subscribeHealth, refreshLinkState, connectWatch, disconnectWatch,
-  openHealthConnectSettings, installHealthConnect, updateConn, getHealth,
-  diagnoseHealth, checkAvailability,
+  getConn, subscribeHealth, refreshLinkState, disconnectWatch,
+  openHealthConnectPermissions, installHealthConnect,
+  updateConn, getHealth, diagnoseHealth, checkAvailability, pullWatchData,
 } from '../lib/health-store.js'
 import { listOrigins } from '../lib/health-connect.js'
 import { confirmSheet } from '../sheets.jsx'
@@ -32,7 +30,7 @@ const SETUP_HC = [
   ['Pair the watch with Huawei Health', 'That is the app your watch actually talks to. Your readings have to land there first.'],
   ['Install Health Sync, set the destination to Health Connect', 'Huawei Health does not write to Health Connect on its own. Pick Health Connect — not Google Fit.'],
   ['Run one sync', 'Open Health Sync and let it push once, so there is something here to read.'],
-  ['Allow Gemak to read it', 'The next screen is Android’s own permission picker. No Google or Huawei sign-in is involved.'],
+  ['Allow Gemak in Health Connect', 'Honor and Huawei almost never show a permission popup. Use Allow from Health Connect in Settings, turn Gemak on there, then pull the data.'],
 ]
 
 function DiagnoseSheet({ toast }) {
@@ -103,36 +101,60 @@ function DiagnoseSheet({ toast }) {
 const openDiagnose = toast => useUI.getState().openSheet(() => <DiagnoseSheet toast={toast} />)
 
 const openHC = async toast => {
-  if (!(await openHealthConnectSettings())) {
-    toast(t('Couldn’t open the health app. Open Huawei Health, or Android Settings → Health Connect.'))
+  if (!(await openHealthConnectPermissions())) {
+    toast(t('Couldn’t open Health Connect. Open Android Settings → Security & privacy → Health Connect.'))
   }
+}
+
+function HealthConnectPermissionRow({ toast }) {
+  return (
+    <Row
+      icon="shield"
+      iconTint="var(--blue)"
+      title={t('Allow from Health Connect')}
+      subtitle={t('Opens Health Connect so you can turn Gemak on. This is the reliable way on Honor and Huawei.')}
+      accessory="chevron"
+      onClick={async () => {
+        if (await openHealthConnectPermissions()) {
+          toast(t('Turn Gemak on in Health Connect, then pull the data'))
+        } else {
+          toast(t('Couldn’t open Health Connect. Open Android Settings → Security & privacy → Health Connect.'))
+        }
+      }}
+    />
+  )
 }
 
 function SetupSheet({ close, toast }) {
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState(null)
-  const [provider, setProvider] = useState('huawei')
+  const [provider, setProvider] = useState('health-connect')
 
   useEffect(() => {
-    checkAvailability().then(r => setProvider(r.provider || 'huawei'))
+    checkAvailability().then(r => {
+      if (r.ok && r.provider === 'huawei') setProvider('huawei')
+      else setProvider(r.provider || 'health-connect')
+    })
   }, [])
 
-  const huawei = provider !== 'health-connect'
+  const huawei = provider === 'huawei'
   const steps = huawei ? SETUP_HUAWEI : SETUP_HC
 
   const go = async () => {
     setBusy(true)
     setProblem(null)
     try {
-      const res = await connectWatch('Huawei Watch Fit 4')
+      const res = await pullWatchData(2)
       if (res.ok) {
         close()
-        toast(t('Watch connected'))
-        syncNowAsync()
+        toast(res.days ? t('Synced') : t('Allowed — nothing new yet. Health Sync may still be catching up.'))
         rememberOrigins()
         return
       }
       setProblem(res.reason)
+      if (res.reason === 'need-permission' || res.reason === 'no-picker' || res.reason === 'timeout') {
+        await openHealthConnectPermissions()
+      }
     } catch (e) {
       setProblem('timeout')
     } finally {
@@ -185,13 +207,19 @@ function SetupSheet({ close, toast }) {
     {problem === 'not-configured' && (
       <div className="wnote"><Icon name="info" /><div>{t('This build has no Huawei App ID. Drop agconnect-services.json into the Android app and rebuild — see docs/HUAWEI_HEALTH.md.')}</div></div>
     )}
-    {problem === 'denied' && (
+    {(problem === 'denied' || problem === 'need-permission') && (
       <div className="wnote"><Icon name="info" /><div>
-        {huawei
-          ? t('Heart rate wasn’t granted, so there is nothing to read. Allow it from Huawei Health, then try again.')
-          : t('Heart rate wasn’t granted, so there is nothing to read. You can change it in Health Connect.')}
+        {t('Gemak isn’t allowed in Health Connect yet. Data from Health Sync stays invisible until you turn Gemak on there.')}
         <Button size="sm" variant="plain" onClick={() => openHC(toast)}>
-          {huawei ? t('Open Huawei Health') : t('Open Health Connect')}
+          {t('Allow from Health Connect')}
+        </Button>
+      </div></div>
+    )}
+    {problem === 'no-bind' && (
+      <div className="wnote"><Icon name="info" /><div>
+        {t('This phone can open Health Connect, but Gemak can’t read the store. Allow Gemak inside Health Connect, then pull again.')}
+        <Button size="sm" variant="plain" onClick={() => openHC(toast)}>
+          {t('Allow from Health Connect')}
         </Button>
       </div></div>
     )}
@@ -202,11 +230,9 @@ function SetupSheet({ close, toast }) {
       <div className="wnote">
         <Icon name="info" />
         <div>
-          <div>{huawei
-            ? t('Huawei Health didn’t respond. Try again, or allow Gemak from Huawei Health yourself.')
-            : t('Health Connect didn’t respond. Try again, or open it yourself and allow Gemak.')}</div>
+          <div>{t('Health Connect didn’t respond. Allow Gemak from Health Connect itself, then pull.')}</div>
           <Button size="sm" variant="plain" onClick={() => openHC(toast)}>
-            {huawei ? t('Open Huawei Health') : t('Open Health Connect')}
+            {t('Allow from Health Connect')}
           </Button>
         </div>
       </div>
@@ -215,11 +241,9 @@ function SetupSheet({ close, toast }) {
       <div className="wnote">
         <Icon name="info" />
         <div>
-          <div>{huawei
-            ? t('The Huawei sign-in screen didn’t open. Allow Gemak from Huawei Health, then try again.')
-            : t('The permission screen didn’t open. Allow Gemak from Health Connect, then try again.')}</div>
+          <div>{t('The permission screen didn’t open. Allow Gemak from Health Connect, then pull.')}</div>
           <Button size="sm" variant="plain" onClick={() => openHC(toast)}>
-            {huawei ? t('Open Huawei Health') : t('Open Health Connect')}
+            {t('Allow from Health Connect')}
           </Button>
         </div>
       </div>
@@ -235,19 +259,19 @@ function SetupSheet({ close, toast }) {
             syncNowAsync()
             rememberOrigins()
           } else {
-            toast(huawei
-              ? t('Still no access — allow Gemak from Huawei Health')
-              : t('Still no access — allow Gemak from Health Connect'))
+            toast(t('Still no access — allow Gemak from Health Connect'))
           }
         }}>{t('I allowed it — check again')}</Button>
       </>
     )}
 
     <div style={{ height: 6 }} />
-    <Button variant="primary" icon="watch" disabled={busy} onClick={go}>
-      {busy
-        ? (huawei ? t('Waiting for Huawei Health…') : t('Waiting for Health Connect…'))
-        : (huawei ? t('Sign in and allow') : t('Allow access'))}
+    <Button variant="plain" icon="shield" onClick={() => openHC(toast)}>
+      {t('Allow from Health Connect')}
+    </Button>
+    <div style={{ height: 8 }} />
+    <Button variant="primary" icon="download" disabled={busy} onClick={go}>
+      {busy ? t('Pulling watch data…') : t('Pull watch data')}
     </Button>
     <div style={{ height: 8 }} />
     <Button size="sm" variant="plain" icon="info" onClick={() => openDiagnose(toast)}>
@@ -280,7 +304,8 @@ export default function WatchCard({ toast }) {
   const [conn, setConn] = useState(getConn())
   const [syncing, setSyncing] = useState(false)
   const [fill, setFill] = useState(null)
-  const huawei = conn.provider !== 'health-connect'
+  const [pulling, setPulling] = useState(false)
+  const huawei = conn.provider === 'huawei'
 
   useEffect(() => {
     const off = subscribeHealth(() => setConn({ ...getConn() }))
@@ -289,6 +314,27 @@ export default function WatchCard({ toast }) {
   }, [])
 
   const open = () => useUI.getState().openSheet(close => <SetupSheet close={close} toast={toast} />)
+
+  const pull = async () => {
+    setPulling(true)
+    try {
+      const res = await pullWatchData(2)
+      if (res.ok) {
+        toast(res.days ? t('Synced') : t('Nothing new yet — Health Sync may still be catching up'))
+        rememberOrigins()
+        return
+      }
+      if (res.reason === 'need-permission' || res.reason === 'denied') {
+        toast(t('Allow Gemak from Health Connect first, then pull.'))
+      } else if (res.reason === 'no-bind') {
+        toast(t('Health Connect didn’t respond. Allow Gemak from Health Connect itself, then pull.'))
+      } else {
+        toast(t('Could not read earlier days'))
+      }
+    } finally {
+      setPulling(false)
+    }
+  }
 
   const unlink = () => confirmSheet({
     title: t('Unlink this watch?'),
@@ -324,7 +370,9 @@ export default function WatchCard({ toast }) {
     setSyncing(true)
     const n = await syncNowAsync(2)
     setSyncing(false)
-    toast(n ? t('Synced') : t('Nothing new yet — Huawei Health may still be catching up'))
+    toast(n ? t('Synced') : (huawei
+      ? t('Nothing new yet — Huawei Health may still be catching up')
+      : t('Nothing new yet — Health Sync may still be catching up')))
   }
 
   const pickSource = () => {
@@ -351,17 +399,21 @@ export default function WatchCard({ toast }) {
   if (conn.state === 'off') {
     return (
       <Section title={t('Watch & health')}
-        footer={t('Reads heart rate, sleep and calories from Huawei Health after you sign in with your Huawei ID.')}>
+        footer={t('Reads what your watch already saved on this phone. No account, no upload.')}>
         <div className="wcard">
           <WatchDevice state="off" size={92} />
           <div className="wcard-m">
             <span className="wcard-t">{t('Add a watch')}</span>
             <span className="wcard-s">{t('See heart rate, sleep and calories next to the workout that earned them.')}</span>
-            <Button size="sm" variant="primary" icon="watch" onClick={open}>{t('Connect')}</Button>
+            <Button size="sm" variant="primary" icon="download" disabled={pulling} onClick={pull}>
+              {pulling ? t('Pulling watch data…') : t('Pull watch data')}
+            </Button>
           </div>
         </div>
-        <Row icon="gear" iconTint="var(--grey)" title={t('Open Huawei Health')} accessory="chevron"
-          onClick={() => openHC(toast)} />
+        <HealthConnectPermissionRow toast={toast} />
+        <Row icon="watch" iconTint="var(--label-3)" title={t('Health Sync setup')}
+          subtitle={t('Pair the watch, run Health Sync, then allow Gemak in Health Connect')}
+          accessory="chevron" onClick={open} />
         <Row icon="info" iconTint="var(--label-3)" title={t('Connection check')}
           subtitle={t('What this phone reports, when linking won’t work')}
           accessory="chevron" onClick={() => openDiagnose(toast)} />
@@ -377,10 +429,13 @@ export default function WatchCard({ toast }) {
           <WatchDevice state="revoked" size={92} />
           <div className="wcard-m">
             <span className="wcard-t">{t('Access expired')}</span>
-            <span className="wcard-s">{t('Huawei Health stopped sharing. Reconnect to pick up where you left off.')}</span>
-            <Button size="sm" variant="primary" icon="reset" onClick={open}>{t('Reconnect')}</Button>
+            <span className="wcard-s">{t('Health Connect stopped sharing. Reconnect to pick up where you left off.')}</span>
+            <Button size="sm" variant="primary" icon="download" disabled={pulling} onClick={pull}>
+              {pulling ? t('Pulling watch data…') : t('Pull watch data')}
+            </Button>
           </div>
         </div>
+        <HealthConnectPermissionRow toast={toast} />
         <Row icon="trash" iconTint="var(--red)" title={t('Unlink watch')} danger onClick={unlink} />
       </Section>
     )
@@ -427,14 +482,20 @@ export default function WatchCard({ toast }) {
       )}
 
       <Row icon="download" iconTint="var(--indigo)" title={t('Fill in earlier days')}
-        subtitle={fill == null ? t('Reads back through what Huawei Health still has') : undefined}
+        subtitle={fill == null
+          ? t(huawei ? 'Reads back through what Huawei Health still has' : 'Reads back through what Health Connect still has')
+          : undefined}
         value={fill == null ? undefined : fill + '%'}
         accessory={fill == null ? 'chevron' : 'none'}
         onClick={fill == null ? backfill : undefined} />
 
-      <Row icon="gear" iconTint="var(--grey)"
-        title={huawei ? t('Open Huawei Health') : t('Manage in Health Connect')}
-        accessory="chevron" onClick={() => openHC(toast)} />
+      {huawei ? (
+        <Row icon="gear" iconTint="var(--grey)"
+          title={t('Open Huawei Health')}
+          accessory="chevron" onClick={() => openHC(toast)} />
+      ) : (
+        <HealthConnectPermissionRow toast={toast} />
+      )}
       <Row icon="trash" iconTint="var(--red)" title={t('Unlink watch')} danger onClick={unlink} />
     </Section>
   )

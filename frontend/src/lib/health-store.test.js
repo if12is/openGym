@@ -12,6 +12,9 @@ describe('mapAvailabilityReason', () => {
     expect(mapAvailabilityReason('update-required')).toBe('update')
     expect(mapAvailabilityReason('not-installed')).toBe('unavailable')
     expect(mapAvailabilityReason('timeout')).toBe('timeout')
+    expect(mapAvailabilityReason('no-bind')).toBe('no-bind')
+    expect(mapAvailabilityReason('need-permission')).toBe('need-permission')
+    expect(mapAvailabilityReason('no-picker')).toBe('no-picker')
   })
 
   it('falls back on unknown strings', () => {

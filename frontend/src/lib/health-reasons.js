@@ -7,6 +7,7 @@ export function mapAvailabilityReason(reason, fallback = 'unavailable') {
   const known = [
     'timeout', 'unavailable', 'update', 'no-plugin', 'no-hms',
     'no-health-app', 'not-configured', 'auth-cancel', 'denied', 'no-picker',
+    'no-bind', 'need-permission',
   ]
   if (known.includes(reason)) return reason
   return fallback

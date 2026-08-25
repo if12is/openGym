@@ -29,7 +29,10 @@ async function call(method, args = {}) {
     const res = await p[method](args)
     return { ok: true, ...res }
   } catch (e) {
-    return fail(e?.message === 'not-authorized' ? 'denied' : 'error')
+    const msg = String(e?.message || e?.code || e || '')
+    if (msg.includes('not-authorized')) return fail('denied')
+    if (msg.includes('no-bind')) return fail('no-bind')
+    return fail('error')
   }
 }
 

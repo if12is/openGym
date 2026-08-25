@@ -69,14 +69,17 @@ object HealthHuawei {
     }
 
     /**
-     * Take this path instead of Health Connect. Huawei/Honor always, because
-     * the Google client bind is what froze the connect sheet. Elsewhere only
-     * when HMS + Health + a real App ID are all present.
+     * Take this path instead of Health Connect.
+     *
+     * Only when AppGallery Connect is actually wired. An Honor/Huawei phone
+     * with Health Sync data in Health Connect must not be sent to a Kit that
+     * has no App ID — that is what made the connect sheet look frozen, and
+     * it hid the Health Connect permission screen those phones need.
      */
     fun shouldHandle(ctx: Context): Boolean {
-        if (isHuaweiFamily()) return true
         return try {
-            isConfigured(ctx) && hmsAvailable(ctx) && healthAppInstalled(ctx)
+            if (!isConfigured(ctx)) return false
+            isHuaweiFamily() || (hmsAvailable(ctx) && healthAppInstalled(ctx))
         } catch (e: Throwable) {
             false
         }

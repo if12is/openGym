@@ -1,8 +1,12 @@
 # Huawei Health Kit (mobile watch data)
 
 The Android app reads heart rate, sleep, steps and calories from **Huawei Health
-Kit** when the phone can talk to HMS (Huawei/Honor with Huawei Health). Phones
-without HMS still fall back to Health Connect.
+Kit** when AppGallery Connect is wired into the APK (`agconnect-services.json`)
+and the phone can talk to HMS.
+
+Without that file, Honor/Huawei phones use **Health Connect** (the Health Sync
+path). Settings has **Allow from Health Connect** for the grant — the in-app
+picker often never appears on those devices — and **Pull watch data** only reads.
 
 Health Kit will not return real data until the app is registered in AppGallery
 Connect and the read scopes are approved. The APK builds without that file;

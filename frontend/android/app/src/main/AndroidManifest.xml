@@ -87,6 +87,17 @@
         <intent>
             <action android:name="androidx.health.ACTION_HEALTH_CONNECT_SETTINGS" />
         </intent>
+        <!-- Per-app permission screen. Honor/Huawei often never show the in-app
+             picker, so Settings opens this instead. -->
+        <intent>
+            <action android:name="android.health.connect.action.MANAGE_HEALTH_PERMISSIONS" />
+        </intent>
+        <intent>
+            <action android:name="androidx.health.ACTION_MANAGE_HEALTH_PERMISSIONS" />
+        </intent>
+        <intent>
+            <action android:name="android.health.connect.action.HEALTH_HOME_SETTINGS" />
+        </intent>
     </queries>
 
     <!-- Permissions -->
