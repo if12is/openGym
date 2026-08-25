@@ -183,14 +183,25 @@ export const READ_SCOPES = [
 ]
 
 let plugin = null
+let pluginResolved = false
 export async function healthPlugin() {
   if (!MOBILE) return null
-  if (plugin) return plugin
+  if (pluginResolved) return plugin
   try {
-    const { registerPlugin } = await import('@capacitor/core')
-    plugin = registerPlugin('Health')
-    return plugin
-  } catch (e) { return null }
+    const cap = await import('@capacitor/core')
+    // Vite with VITE_MOBILE=1 still runs on the web platform. Calling a custom
+    // plugin there never settles (or waits for our timeout), which left the
+    // Settings pull button spinning.
+    if (cap.Capacitor.getPlatform() === 'web') {
+      pluginResolved = true
+      return null
+    }
+    plugin = cap.registerPlugin('Health')
+  } catch (e) {
+    plugin = null
+  }
+  pluginResolved = true
+  return plugin
 }
 
 function withTimeout(p, ms, reason) {
