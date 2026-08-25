@@ -75,19 +75,26 @@ export async function getInstalledVersion() {
 // The fetch path stays for `npm run dev` in a browser, where there is no plugin.
 export async function fetchRemoteManifest() {
   let p = null
-  try { p = await withTimeout(appUpdatePlugin(), 4000, 'plugin-timeout') } catch { /* fetch below */ }
+  try { p = await withTimeout(appUpdatePlugin(), 4000, 'plugin-timeout') } catch { /* handled below */ }
   if (p) {
     try {
-      // 45s: the native side already uses 15s connect / 30s read, so this only
+      // 40s: the native side already uses 15s connect / 30s read, so this only
       // catches a call that never came back at all.
-      const r = await withTimeout(p.httpGet({ url: MANIFEST_URL }), 45000, 'timeout')
+      const r = await withTimeout(p.httpGet({ url: MANIFEST_URL }), 40000, 'timeout')
       return JSON.parse(r.body)
     } catch (e) {
-      // An older APK predates httpGet; anything else is a real network failure
-      // and should be reported rather than retried over a route that cannot work.
-      if (!isUnimplemented(e)) throw new Error(e?.message || 'network')
+      if (!MOBILE) throw new Error(e?.message || 'network')
+      // On mobile there is nothing to fall through to. fetch() cannot complete
+      // this request — GitHub's release assets send no CORS headers on either
+      // hop — and in this WebView it hangs rather than rejecting, so falling
+      // back would replace a reportable failure with a spinner that never ends.
+      throw new Error(isUnimplemented(e) ? 'update-not-supported-in-this-build' : (e?.message || 'network'))
     }
   }
+  // Reached only when the native plugin could not be resolved at all. Same
+  // reasoning: on mobile, say so rather than hang.
+  if (MOBILE) throw new Error('native-bridge-unavailable')
+
   const ctrl = new AbortController()
   const tm = setTimeout(() => ctrl.abort(), 20000)
   try {

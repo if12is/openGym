@@ -440,10 +440,17 @@ export async function pullWatchData(days = 2) {
  * diagnosing is the hang.
  */
 export async function diagnoseHealth() {
-  const p = await healthPlugin()
+  let p
+  // healthPlugin() awaits a dynamic import, which is a chunk fetch on the mobile
+  // build — bounded like everything else, because an unbounded await here is
+  // what left the check itself sitting on "Checking…".
+  try { p = await withTimeout(healthPlugin(), 5000, 'timeout') } catch (e) { return { error: 'no-plugin' } }
   if (!p) return { error: 'no-plugin' }
   try {
-    return await withTimeout(p.diagnose(), 40000, 'timeout')
+    // 20s, not 40: every step inside diagnose() is separately timed out on the
+    // native side and the whole thing cannot legitimately take longer than that.
+    // Past it, the call never reached the method body at all.
+    return await withTimeout(p.diagnose(), 20000, 'timeout')
   } catch (e) {
     return { error: rejectReason(e, 'timeout') }
   }

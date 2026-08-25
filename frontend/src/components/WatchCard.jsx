@@ -14,6 +14,7 @@ import {
   openHealthConnectPermissions, installHealthConnect,
   updateConn, getHealth, diagnoseHealth, checkAvailability, pullWatchData,
 } from '../lib/health-store.js'
+import { bridgeReport } from '../lib/bridge-report.js'
 import { listOrigins } from '../lib/health-connect.js'
 import { confirmSheet } from '../sheets.jsx'
 import { Section, Row, Button } from './ui.jsx'
@@ -35,8 +36,25 @@ const SETUP_HC = [
 
 function DiagnoseSheet({ toast }) {
   const [d, setD] = useState(null)
+  const [b, setB] = useState(null)
 
-  useEffect(() => { diagnoseHealth().then(setD) }, [])
+  // Two independent readouts, started together and rendered as each arrives.
+  // The bridge one needs nothing but @capacitor/core, so it answers even when
+  // the Health plugin is exactly what is broken — which is the case this screen
+  // exists for.
+  useEffect(() => {
+    bridgeReport().then(setB, () => setB({ error: 'failed' }))
+    diagnoseHealth().then(setD, () => setD({ error: 'failed' }))
+  }, [])
+
+  const bridgeRows = b ? [
+    [t('Platform'), `${b.platform || '—'}${b.native ? '' : ' · ' + t('not native')}`],
+    [t('Plugins the bridge exposes'), (b.plugins || []).join(', ') || t('none')],
+    [t('Health plugin registered'), b.healthRegistered ? t('Yes') : t('No')],
+    [t('Update plugin registered'), b.appUpdateRegistered ? t('Yes') : t('No')],
+    [t('Health plugin answers'), b.healthProbe || '—'],
+    [t('Update plugin answers'), b.appUpdateProbe || '—'],
+  ] : []
 
   const huawei = d && !d.error && d.provider === 'huawei'
   const rows = d && !d.error ? [
@@ -59,7 +77,21 @@ function DiagnoseSheet({ toast }) {
     [t('Allowed types'), (d.granted || []).join(', ') || '—'],
   ].filter(Boolean) : []
 
-  const text = rows.map(([k, v]) => `${k}: ${v}`).join('\n')
+  const all = [...bridgeRows, ...rows]
+  const text = all.map(([k, v]) => `${k}: ${v}`).join('\n')
+
+  const List = ({ items }) => (
+    <div className="sect-b">
+      {items.map(([k, v]) => (
+        <div className="lrow" key={k} style={{ alignItems: 'flex-start' }}>
+          <span className="lrow-m">
+            <span className="lrow-t">{k}</span>
+            <span className="lrow-s" style={{ wordBreak: 'break-all', whiteSpace: 'normal' }}>{v}</span>
+          </span>
+        </div>
+      ))}
+    </div>
+  )
 
   return <>
     <h3>{t('Connection check')}</h3>
@@ -67,25 +99,24 @@ function DiagnoseSheet({ toast }) {
       {t('What this phone reports. Send a screenshot of this if the watch still won’t link.')}
     </p>
 
+    {/* The bridge section first, and on its own clock. It is the half that
+        still answers when the native plugin is the thing at fault. */}
+    <p className="muted small" style={{ margin: '4px 0 6px' }}>{t('App bridge')}</p>
+    {!b && <div className="wnote"><Icon name="reset" /><div>{t('Checking…')}</div></div>}
+    {b?.error && (
+      <div className="wnote"><Icon name="info" /><div>{t('The check itself failed: {0}', b.error)}</div></div>
+    )}
+    {bridgeRows.length > 0 && <List items={bridgeRows} />}
+
+    <div style={{ height: 12 }} />
+    <p className="muted small" style={{ margin: '4px 0 6px' }}>{t('Health Connect')}</p>
     {!d && <div className="wnote"><Icon name="reset" /><div>{t('Checking…')}</div></div>}
     {d?.error && (
       <div className="wnote"><Icon name="info" /><div>{t('The check itself failed: {0}', d.error)}</div></div>
     )}
+    {rows.length > 0 && <List items={rows} />}
 
-    {rows.length > 0 && (
-      <div className="sect-b">
-        {rows.map(([k, v]) => (
-          <div className="lrow" key={k} style={{ alignItems: 'flex-start' }}>
-            <span className="lrow-m">
-              <span className="lrow-t">{k}</span>
-              <span className="lrow-s" style={{ wordBreak: 'break-all', whiteSpace: 'normal' }}>{v}</span>
-            </span>
-          </div>
-        ))}
-      </div>
-    )}
-
-    {rows.length > 0 && (
+    {all.length > 0 && (
       <>
         <div style={{ height: 10 }} />
         <Button icon="clipboard" onClick={async () => {

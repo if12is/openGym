@@ -821,7 +821,6 @@ export default {
 
   // --- history backfill ---
   'Fill in earlier days': 'كمّل الأيام اللي فاتت',
-  'Reads back through what Health Connect still has': 'بيقرا لورا في اللي Health Connect لسه محتفظ بيه',
   'Reads back through what Huawei Health still has': 'بيقرا لورا في اللي Huawei Health لسه محتفظ بيه',
   'Fill in earlier days?': 'تكمّل الأيام اللي فاتت؟',
   'Reads back day by day and stops where your data runs out. It can take a few minutes.': 'بيقرا يوم بيوم وبيقف عند آخر بياناتك. ممكن ياخد كام دقيقة.',
@@ -871,6 +870,15 @@ export default {
   // Deliberately plain Arabic, not translated jargon: this screen gets
   // screenshotted and sent, so it has to read to the person holding the phone.
   'Connection check': 'فحص الاتصال',
+  'App bridge': 'جسر التطبيق',
+  'Platform': 'المنصّة',
+  'not native': 'مش نسخة موبايل',
+  'Plugins the bridge exposes': 'الإضافات اللي الجسر شايفها',
+  'none': 'ولا واحدة',
+  'Health plugin registered': 'إضافة الصحة متسجّلة',
+  'Update plugin registered': 'إضافة التحديث متسجّلة',
+  'Health plugin answers': 'إضافة الصحة بترد',
+  'Update plugin answers': 'إضافة التحديث بترد',
   'What this phone reports, when linking won’t work': 'اللي الموبايل ده بيقوله، لما الربط مش راضي يشتغل',
   'What this phone reports. Send a screenshot of this if the watch still won’t link.': 'ده اللي الموبايل بيقوله. لو الساعة لسه مش راضية تتربط، ابعت صورة للشاشة دي.',
   'The check itself failed: {0}': 'الفحص نفسه فشل: {0}',
