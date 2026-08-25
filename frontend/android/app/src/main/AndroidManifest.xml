@@ -64,11 +64,20 @@
          availability check reports "missing" on a phone that has it. -->
     <queries>
         <package android:name="com.google.android.apps.healthdata" />
+        <!-- The action the androidx client actually builds its picker intent
+             with on Android 13 and below. It is ACTION_REQUEST_PERMISSIONS, not
+             ACTION_REQUEST_HEALTH_PERMISSIONS — the longer name is the one in
+             the manifest docs, and querying for it matches nothing.
+             From Android 14 the picker is an ordinary runtime-permission
+             request handled inside AndroidX, so no <queries> entry applies. -->
         <intent>
-            <action android:name="androidx.health.ACTION_REQUEST_HEALTH_PERMISSIONS" />
+            <action android:name="androidx.health.ACTION_REQUEST_PERMISSIONS" />
         </intent>
         <intent>
             <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+        </intent>
+        <intent>
+            <action android:name="androidx.health.ACTION_HEALTH_CONNECT_SETTINGS" />
         </intent>
     </queries>
 

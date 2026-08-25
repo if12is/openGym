@@ -326,7 +326,32 @@ export function disconnectWatch() {
 
 export async function openHealthConnectSettings() {
   const p = await healthPlugin()
-  try { await p?.openSettings() } catch (e) { /* nothing to fall back to */ }
+  if (!p) return false
+  try {
+    await withTimeout(p.openSettings(), 8000, 'timeout')
+    return true
+  } catch (e) { return false }
+}
+
+/**
+ * A readout of every step of the link, for when it fails on a phone nobody can
+ * put a cable into.
+ *
+ * Each field answers a question that otherwise takes a round of guessing:
+ * whether Health Connect is there at all, whether the permission declarations
+ * survived into the installed APK, what intent the picker actually builds on
+ * this Android version, and what the platform currently holds. Every native
+ * step is timed out on its own side, so this resolves even when the thing it is
+ * diagnosing is the hang.
+ */
+export async function diagnoseHealth() {
+  const p = await healthPlugin()
+  if (!p) return { error: 'no-plugin' }
+  try {
+    return await withTimeout(p.diagnose(), 40000, 'timeout')
+  } catch (e) {
+    return { error: rejectReason(e, 'timeout') }
+  }
 }
 
 export async function installHealthConnect() {

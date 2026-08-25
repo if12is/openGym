@@ -29,15 +29,39 @@ async function fs() {
   return import('@capacitor/filesystem')
 }
 
+// Nothing here awaits a native call without a deadline.
+//
+// A Capacitor method that never calls resolve() leaves its JS promise pending
+// forever — there is no built-in timeout — and one of those upstream of the
+// first setUpdateState() is indistinguishable from a frozen card. The update
+// card sat on "Checking…" with no version and no error for exactly that reason.
+function withTimeout(p, ms, reason) {
+  return new Promise((resolve, reject) => {
+    const id = setTimeout(() => reject(Object.assign(new Error(reason), { code: reason })), ms)
+    Promise.resolve(p).then(
+      v => { clearTimeout(id); resolve(v) },
+      e => { clearTimeout(id); reject(e) },
+    )
+  })
+}
+
+// Baked in at build time by scripts/bump-android-version.mjs, so it is the same
+// number the APK was stamped with — a correct answer, not a placeholder.
+const builtVersion = () => ({
+  versionName: import.meta.env.VITE_APP_VERSION || '0',
+  versionCode: Number(import.meta.env.VITE_APP_VERSION_CODE || 0),
+})
+
 export async function getInstalledVersion() {
-  const p = await appUpdatePlugin()
-  if (p?.getAppVersion) {
-    try { return await p.getAppVersion() } catch { /* fall through */ }
+  let p = null
+  try { p = await withTimeout(appUpdatePlugin(), 4000, 'plugin-timeout') } catch { /* below */ }
+  if (p) {
+    try {
+      const v = await withTimeout(p.getAppVersion(), 5000, 'timeout')
+      if (Number(v?.versionCode) > 0) return v
+    } catch { /* fall through to the build-time value */ }
   }
-  return {
-    versionName: import.meta.env.VITE_APP_VERSION || '0',
-    versionCode: Number(import.meta.env.VITE_APP_VERSION_CODE || 0),
-  }
+  return builtVersion()
 }
 
 // Native first, and not as an optimisation.
@@ -50,10 +74,13 @@ export async function getInstalledVersion() {
 //
 // The fetch path stays for `npm run dev` in a browser, where there is no plugin.
 export async function fetchRemoteManifest() {
-  const p = await appUpdatePlugin()
+  let p = null
+  try { p = await withTimeout(appUpdatePlugin(), 4000, 'plugin-timeout') } catch { /* fetch below */ }
   if (p) {
     try {
-      const r = await p.httpGet({ url: MANIFEST_URL })
+      // 45s: the native side already uses 15s connect / 30s read, so this only
+      // catches a call that never came back at all.
+      const r = await withTimeout(p.httpGet({ url: MANIFEST_URL }), 45000, 'timeout')
       return JSON.parse(r.body)
     } catch (e) {
       // An older APK predates httpGet; anything else is a real network failure
@@ -118,9 +145,11 @@ export async function getPendingInstall() {
   if (!MOBILE) return null
   try {
     const { Filesystem, Directory, Encoding } = await fs()
-    const r = await Filesystem.readFile({ path: APK_META, directory: Directory.Cache, encoding: Encoding.UTF8 })
+    const r = await withTimeout(
+      Filesystem.readFile({ path: APK_META, directory: Directory.Cache, encoding: Encoding.UTF8 }),
+      8000, 'timeout')
     const meta = JSON.parse(r.data)
-    const stat = await Filesystem.stat({ path: APK_PATH, directory: Directory.Cache })
+    const stat = await withTimeout(Filesystem.stat({ path: APK_PATH, directory: Directory.Cache }), 8000, 'timeout')
     const total = Number(meta.bytes) || 0
     if (total > 0 && Number(stat.size) < total) return null
     return { ...meta, bytes: Number(stat.size) || meta.bytes }
@@ -131,9 +160,11 @@ export async function getPartialDownload() {
   if (!MOBILE) return null
   try {
     const { Filesystem, Directory, Encoding } = await fs()
-    const r = await Filesystem.readFile({ path: PROGRESS_META, directory: Directory.Cache, encoding: Encoding.UTF8 })
+    const r = await withTimeout(
+      Filesystem.readFile({ path: PROGRESS_META, directory: Directory.Cache, encoding: Encoding.UTF8 }),
+      8000, 'timeout')
     const meta = JSON.parse(r.data)
-    const stat = await Filesystem.stat({ path: APK_PATH, directory: Directory.Cache })
+    const stat = await withTimeout(Filesystem.stat({ path: APK_PATH, directory: Directory.Cache }), 8000, 'timeout')
     return { ...meta, loaded: Number(stat.size) || 0 }
   } catch { return null }
 }
@@ -402,12 +433,35 @@ export function useAppUpdate() {
 
 export async function bootAppUpdate() {
   if (!MOBILE) return getUpdateState()
-  if (downloadJob) return getUpdateState()
+  if (downloadJob) {
+    if (getUpdateState().phase === 'downloading') return getUpdateState()
+    // A job that outlived the state it belongs to — its native call never came
+    // back. Left in place it makes "Check again" a no-op forever, which reads
+    // as a dead button.
+    downloadJob = null
+  }
+  try {
+    return await runCheck()
+  } catch (e) {
+    // 'checking' is the one phase with no way out for the user: no version, no
+    // error, no retry that reads as different from the last one. Whatever went
+    // wrong, the card ends up somewhere it can be acted on.
+    setUpdateState({
+      phase: 'error',
+      local: getUpdateState().local || builtVersion(),
+      error: e?.message || String(e),
+    })
+    return getUpdateState()
+  }
+}
+
+async function runCheck() {
   setUpdateState({ phase: 'checking', error: null })
-  const local = await getInstalledVersion()
   // Publish the installed version before going near the network. It is known
   // locally and costs nothing, and without it the card had nothing to show but
   // "Checking…" — so a network problem looked identical to a hang.
+  setUpdateState({ phase: 'checking', local: builtVersion() })
+  const local = await getInstalledVersion()
   setUpdateState({ phase: 'checking', local })
   let pending = await getPendingInstall()
   let partial = await getPartialDownload()

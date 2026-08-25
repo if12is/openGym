@@ -3,6 +3,10 @@ package ch.duartesantos.opengym
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
 import androidx.activity.result.ActivityResult
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
@@ -33,6 +37,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import java.time.Instant
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
@@ -206,13 +211,43 @@ class HealthPlugin : Plugin() {
         }
     }
 
+    /**
+     * The manual way in: Health Connect's own screen, where access can be granted
+     * without the picker. Which deep link works depends on the platform version,
+     * and getting this wrong is not cosmetic — it is the only route left when the
+     * picker misbehaves.
+     *
+     *   · Android 14+  Health Connect is part of the OS and answers
+     *                  android.health.connect.action.HEALTH_HOME_SETTINGS.
+     *                  The androidx action resolves to nothing here, because the
+     *                  standalone provider APK is not installed at all.
+     *   · Android 13-  the provider APK handles the androidx action.
+     *
+     * Last resort is this app's own details page, which on every version has a
+     * Permissions entry that reaches the same place in two more taps.
+     */
     @PluginMethod
     fun openSettings(call: PluginCall) {
-        // ACTION_HEALTH_HOME_SETTINGS is the deep link Health Connect itself
-        // publishes; on 14+ it lands in the OS settings page instead.
-        val intent = Intent(HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS)
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        try { context.startActivity(intent); call.resolve() } catch (e: Throwable) { call.reject("no-settings") }
+        val actions = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= 34) actions.add(ACTION_HEALTH_HOME_SETTINGS)
+        actions.add(HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS)
+        if (Build.VERSION.SDK_INT < 34) actions.add(ACTION_HEALTH_HOME_SETTINGS)
+
+        for (action in actions) {
+            val intent = Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (runCatching { context.startActivity(intent) }.isSuccess) {
+                call.resolve(JSObject().put("via", action))
+                return
+            }
+        }
+        val details = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+            .setData(Uri.parse("package:" + context.packageName))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (runCatching { context.startActivity(details) }.isSuccess) {
+            call.resolve(JSObject().put("via", "app-details"))
+            return
+        }
+        call.reject("no-settings")
     }
 
     @PluginMethod
@@ -232,13 +267,57 @@ class HealthPlugin : Plugin() {
 
     /* ============================ permissions ============================ */
 
+    /**
+     * What the platform says is granted, right now, without ever blocking
+     * indefinitely.
+     *
+     * getGrantedPermissions() is a suspend call on a bound service, and on
+     * Honor/Huawei that bind can sit forever — so it runs on a throwaway thread
+     * behind a hard deadline like getOrCreate does. Returning an empty set on
+     * timeout is safe: every caller treats "nothing granted" as "ask again".
+     */
+    private fun grantedNow(ms: Long = 6_000): Set<String>? = runTimed(ms) {
+        runBlocking {
+            HealthConnectClient.getOrCreate(context).permissionController.getGrantedPermissions()
+        }
+    }
+
     @PluginMethod
     fun checkAuthorization(call: PluginCall) {
-        run(call) {
-            val c = clientOrNull() ?: return@run JSObject().put("granted", JSArray())
-            val held = c.permissionController.getGrantedPermissions()
-            grantedResult(held)
-        }
+        scope.launch { call.resolve(grantedResult(grantedNow() ?: emptySet())) }
+    }
+
+    /* -- the permission picker ------------------------------------------------
+     *
+     * One pending request at a time, and it is always answered. Three separate
+     * things can settle it, because on real devices any one of them can fail:
+     *
+     *   1. the activity result, when the picker behaves
+     *   2. coming back to the app, when the picker granted access and then lost
+     *      the callback (common on Honor/Huawei)
+     *   3. a watchdog, when the picker never appeared at all
+     *
+     * Whichever fires first wins; `settled` makes the other two no-ops. The one
+     * thing that must never happen is none of them firing, which is what left
+     * the connect sheet spinning on "Waiting for Health Connect…".
+     */
+    private var pendingCall: PluginCall? = null
+    private var settled = true
+    // The picker is another activity, so this app pauses when it opens. Resuming
+    // without having paused means the picker never came up at all — which is a
+    // different failure, and not one the resume path should answer.
+    private var pausedSinceLaunch = false
+    private val main = Handler(Looper.getMainLooper())
+    private val watchdog = Runnable { settlePending("watchdog") }
+
+    @Synchronized
+    private fun settlePending(@Suppress("UNUSED_PARAMETER") why: String) {
+        if (settled) return
+        val call = pendingCall ?: return
+        settled = true
+        pendingCall = null
+        main.removeCallbacks(watchdog)
+        scope.launch { call.resolve(grantedResult(grantedNow() ?: emptySet())) }
     }
 
     @PluginMethod
@@ -251,9 +330,21 @@ class HealthPlugin : Plugin() {
         if (call.getBoolean("requestHistoryAccess", false) == true) {
             perms.add(HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY)
         }
-        // Do not wait for getOrCreate — the picker is an Intent, it does not
-        // need a bound client. Binding first is what left the JS promise hanging.
-        launchPicker(call, perms)
+        // Off Capacitor's handler thread: grantedNow blocks, and everything
+        // queued behind it on that thread would block with it.
+        scope.launch {
+            // Already granted from an earlier attempt the app never heard about —
+            // answer straight away rather than sending the user through the
+            // picker to be told what the platform already knows.
+            val held = grantedNow(4_000)
+            if (held != null && held.containsAll(perms - HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY)) {
+                call.resolve(grantedResult(held))
+                return@launch
+            }
+            // Do not wait for getOrCreate — the picker is an Intent, it does not
+            // need a bound client. Binding first is what left JS hanging.
+            launchPicker(call, perms)
+        }
     }
 
     private fun launchPicker(call: PluginCall, perms: Set<String>, droppedHistory: Boolean = false) {
@@ -270,17 +361,19 @@ class HealthPlugin : Plugin() {
             call.reject("no-picker")
             return
         }
-        // Refuse to launch into a void. If nothing on the device handles the
-        // picker intent, startActivityForResult can still "succeed" and simply
-        // never deliver a result — which left JS waiting forever instead of
-        // being told the picker is not there.
-        if (act.packageManager.resolveActivity(intent, 0) == null) {
-            if (!droppedHistory && perms.contains(HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY)) {
-                launchPicker(call, perms - HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY, true)
-                return
-            }
-            call.reject("no-picker")
-            return
+        // NOTE: do not gate this on packageManager.resolveActivity().
+        //
+        // From Android 14 health permissions are ordinary runtime permissions,
+        // so the contract hands back AndroidX's internal
+        // "androidx.activity.result.contract.action.REQUEST_PERMISSIONS" intent,
+        // which ActivityResultRegistry intercepts and turns into
+        // requestPermissions(). No activity on the device declares that action,
+        // so resolveActivity() is null for a perfectly good intent — checking it
+        // rejected every request on 14+ before the picker was ever shown.
+        synchronized(this) {
+            pendingCall = call
+            settled = false
+            pausedSinceLaunch = false
         }
         // Capacitor plugin methods run on a background HandlerThread.
         // ActivityResultLauncher.launch() must be called on the main thread;
@@ -288,7 +381,12 @@ class HealthPlugin : Plugin() {
         act.runOnUiThread {
             try {
                 startActivityForResult(call, intent, "permissionResult")
+                // Long enough that a user reading the consent screen is not cut
+                // off, short enough that a picker which never opened does not
+                // look like a frozen app.
+                main.postDelayed(watchdog, 100_000)
             } catch (e: Throwable) {
+                synchronized(this) { settled = true; pendingCall = null }
                 if (!droppedHistory && perms.contains(HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY)) {
                     launchPicker(call, perms - HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY, true)
                     return@runOnUiThread
@@ -299,22 +397,26 @@ class HealthPlugin : Plugin() {
     }
 
     @ActivityCallback
-    fun permissionResult(call: PluginCall?, result: ActivityResult) {
-        if (call == null) return
-        run(call) {
-            val fromIntent = runCatching {
-                PermissionController.createRequestPermissionResultContract()
-                    .parseResult(result.resultCode, result.data)
-            }.getOrDefault(emptySet())
-            // The contract's extras are not the same on every provider; if the
-            // client bind works, trust that. If it still hangs (Honor), fall
-            // back to whatever the picker itself reported so JS is not stuck.
-            val fromClient = try {
-                clientOrNull()?.permissionController?.getGrantedPermissions()
-            } catch (e: Throwable) {
-                null
-            }
-            grantedResult(fromClient ?: fromIntent)
+    fun permissionResult(@Suppress("UNUSED_PARAMETER") call: PluginCall?, @Suppress("UNUSED_PARAMETER") result: ActivityResult) {
+        // The result's own extras are not consistent between providers, and the
+        // pending call is answered from the platform's granted set either way —
+        // so there is nothing here to parse. This exists to settle the request
+        // the moment the picker closes, before the watchdog would.
+        settlePending("result")
+    }
+
+    override fun handleOnPause() {
+        super.handleOnPause()
+        if (!settled) pausedSinceLaunch = true
+    }
+
+    override fun handleOnResume() {
+        super.handleOnResume()
+        // Back in the app with a request still open: the picker closed without
+        // delivering a result. Give the platform a moment to commit the grant,
+        // then answer from what it actually holds.
+        if (!settled && pausedSinceLaunch) {
+            main.postDelayed({ settlePending("resume") }, 700)
         }
     }
 
@@ -517,7 +619,76 @@ class HealthPlugin : Plugin() {
         }
     }
 
+    /**
+     * Everything needed to tell, from a phone that is not in front of me, why a
+     * link failed. Every step is timed out separately and reported rather than
+     * thrown, so this call always returns — a diagnostic that can hang is worse
+     * than none.
+     */
+    @PluginMethod
+    fun diagnose(call: PluginCall) {
+        scope.launch {
+            val out = JSObject()
+            out.put("sdkInt", Build.VERSION.SDK_INT)
+            out.put("device", Build.MANUFACTURER + " " + Build.MODEL)
+
+            val status = runTimed(6_000) { HealthConnectClient.getSdkStatus(context) }
+            out.put("sdkStatus", status ?: -1)
+            out.put("sdkStatusText", when (status) {
+                null -> "timed out"
+                HealthConnectClient.SDK_AVAILABLE -> "available"
+                HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> "update required"
+                else -> "not installed"
+            })
+
+            val pm = context.packageManager
+            out.put("providerInstalled", runCatching {
+                pm.getPackageInfo("com.google.android.apps.healthdata", 0); true
+            }.getOrDefault(false))
+
+            // The picker intent, as the library actually builds it on this OS
+            // version. `resolves` being false is expected and fine on 14+ — the
+            // action is handled inside AndroidX, not by any activity.
+            val perms = scopeNames().mapNotNull { permissionFor(it) }.toSet()
+            val act = activity
+            if (act != null) {
+                val intent = runCatching {
+                    PermissionController.createRequestPermissionResultContract().createIntent(act, perms)
+                }.getOrNull()
+                out.put("pickerAction", intent?.action ?: "could not build")
+                out.put("pickerPackage", intent?.`package` ?: "none")
+                out.put("pickerResolves", intent != null && pm.resolveActivity(intent, 0) != null)
+            } else {
+                out.put("pickerAction", "no activity")
+            }
+
+            val bound = runTimed(6_000) { HealthConnectClient.getOrCreate(context); true }
+            out.put("clientBinds", bound == true)
+
+            // null means the read itself timed out, which is a different problem
+            // from "nothing is granted" — grantedCount carries that as -1.
+            val held = grantedNow(6_000)
+            val names = JSArray()
+            (held ?: emptySet()).forEach { names.put(it.substringAfterLast('.')) }
+            out.put("granted", names)
+            out.put("grantedCount", held?.size ?: -1)
+
+            // Whether the manifest declarations survived into the installed APK.
+            // If this is 0 the app cannot appear in Health Connect at all.
+            val declared = runCatching {
+                pm.getPackageInfo(context.packageName, PackageManager.GET_PERMISSIONS)
+                    .requestedPermissions?.count { it.startsWith("android.permission.health.") } ?: 0
+            }.getOrDefault(-1)
+            out.put("declaredHealthPermissions", declared)
+
+            call.resolve(out)
+        }
+    }
+
     companion object {
+        /** Platform Health Connect, Android 14+. Not exposed by the androidx client. */
+        const val ACTION_HEALTH_HOME_SETTINGS = "android.health.connect.action.HEALTH_HOME_SETTINGS"
+
         private val ASLEEP_STAGES = setOf(
             SleepSessionRecord.STAGE_TYPE_SLEEPING,
             SleepSessionRecord.STAGE_TYPE_LIGHT,

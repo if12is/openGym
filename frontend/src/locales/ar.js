@@ -833,6 +833,34 @@ export default {
   'Checking for updates…': 'بندوّر على تحديث…',
   'I allowed it — check again': 'أنا سمحت خلاص — اتأكد تاني',
   'Still no access — allow Gemak from Health Connect': 'لسه مفيش صلاحية — اسمح لچيمك من Health Connect',
+
+  // --- Connection check (diagnostics) ---
+  // Deliberately plain Arabic, not translated jargon: this screen gets
+  // screenshotted and sent, so it has to read to the person holding the phone.
+  'Connection check': 'فحص الاتصال',
+  'What this phone reports, when linking won’t work': 'اللي الموبايل ده بيقوله، لما الربط مش راضي يشتغل',
+  'What this phone reports. Send a screenshot of this if the watch still won’t link.': 'ده اللي الموبايل بيقوله. لو الساعة لسه مش راضية تتربط، ابعت صورة للشاشة دي.',
+  'The check itself failed: {0}': 'الفحص نفسه فشل: {0}',
+  'Phone': 'الموبايل',
+  'Health Connect': 'Health Connect',
+  'Provider app installed': 'تطبيق Health Connect متثبّت',
+  'Yes': 'أيوه',
+  'No — built into Android': 'لأ — جوه أندرويد نفسه',
+  'Health permissions in this build': 'صلاحيات الصحة في النسخة دي',
+  'Permission screen': 'شاشة الصلاحيات',
+  'Resolves to an app': 'فيه تطبيق بيفتحها',
+  'No — handled inside Android': 'لأ — أندرويد بيتعامل معاها جوّه',
+  'Data connection': 'الاتصال بالبيانات',
+  'Works': 'شغّال',
+  'Timed out': 'خلص وقته',
+  'Allowed right now': 'مسموح دلوقتي',
+  'Could not read': 'مش قادر يقرا',
+  'Allowed types': 'الأنواع المسموحة',
+  'Copy': 'انسخ',
+  'Copied': 'اتنسخ',
+  'Could not copy': 'مقدرش ينسخ',
+  'Couldn’t open Health Connect. Open Android Settings → Security & privacy → Health Connect.':
+    'مقدرش يفتح Health Connect. افتح إعدادات أندرويد ← الأمان والخصوصية ← Health Connect.',
   'Density': 'الكثافة',
   '/min': '/د',
 

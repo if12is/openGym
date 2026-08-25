@@ -15,6 +15,7 @@ import { fmtDate, isoOf } from '../lib/format.js'
 import {
   getConn, subscribeHealth, refreshLinkState, connectWatch, disconnectWatch,
   openHealthConnectSettings, installHealthConnect, updateConn, getHealth,
+  diagnoseHealth,
 } from '../lib/health-store.js'
 import { listOrigins } from '../lib/health-connect.js'
 import { confirmSheet } from '../sheets.jsx'
@@ -30,6 +31,83 @@ const SETUP_STEPS = [
   ['Run one sync', 'Open Health Sync and let it push once, so there is something here to read.'],
   ['Allow Gemak to read it', 'The next screen is Android’s own permission picker. No Google or Huawei sign-in is involved.'],
 ]
+
+/**
+ * What the phone actually reports, when the link fails and nobody can plug it in.
+ *
+ * This exists because three rounds of fixes were shipped against a description
+ * of a symptom. Every line here is a fact the device knows and the developer
+ * cannot: which Android, whether Health Connect answers, whether the permission
+ * declarations survived into the installed build, and what the picker intent
+ * resolves to on this particular OS version.
+ */
+function DiagnoseSheet({ toast }) {
+  const [d, setD] = useState(null)
+
+  useEffect(() => { diagnoseHealth().then(setD) }, [])
+
+  const rows = d && !d.error ? [
+    [t('Phone'), `${d.device} · Android SDK ${d.sdkInt}`],
+    [t('Health Connect'), `${d.sdkStatusText} (${d.sdkStatus})`],
+    [t('Provider app installed'), d.providerInstalled ? t('Yes') : t('No — built into Android')],
+    [t('Health permissions in this build'), String(d.declaredHealthPermissions)],
+    [t('Permission screen'), d.pickerAction],
+    [t('Resolves to an app'), d.pickerResolves ? t('Yes') : t('No — handled inside Android')],
+    [t('Data connection'), d.clientBinds ? t('Works') : t('Timed out')],
+    [t('Allowed right now'), d.grantedCount < 0 ? t('Could not read') : String(d.grantedCount)],
+    [t('Allowed types'), (d.granted || []).join(', ') || '—'],
+  ] : []
+
+  const text = rows.map(([k, v]) => `${k}: ${v}`).join('\n')
+
+  return <>
+    <h3>{t('Connection check')}</h3>
+    <p className="muted small" style={{ marginBottom: 10, lineHeight: 1.5 }}>
+      {t('What this phone reports. Send a screenshot of this if the watch still won’t link.')}
+    </p>
+
+    {!d && <div className="wnote"><Icon name="reset" /><div>{t('Checking…')}</div></div>}
+    {d?.error && (
+      <div className="wnote"><Icon name="info" /><div>{t('The check itself failed: {0}', d.error)}</div></div>
+    )}
+
+    {rows.length > 0 && (
+      <div className="sect-b">
+        {rows.map(([k, v]) => (
+          <div className="lrow" key={k} style={{ alignItems: 'flex-start' }}>
+            <span className="lrow-m">
+              <span className="lrow-t">{k}</span>
+              <span className="lrow-s" style={{ wordBreak: 'break-all', whiteSpace: 'normal' }}>{v}</span>
+            </span>
+          </div>
+        ))}
+      </div>
+    )}
+
+    {rows.length > 0 && (
+      <>
+        <div style={{ height: 10 }} />
+        <Button icon="clipboard" onClick={async () => {
+          try { await navigator.clipboard.writeText(text); toast(t('Copied')) }
+          catch { toast(t('Could not copy')) }
+        }}>{t('Copy')}</Button>
+      </>
+    )}
+    <div style={{ height: 8 }} />
+  </>
+}
+
+const openDiagnose = toast => useUI.getState().openSheet(() => <DiagnoseSheet toast={toast} />)
+
+// openSettings reports whether anything actually opened. Which deep link works
+// depends on the Android version, and a tap that silently does nothing is the
+// worst outcome here — this is the route people fall back to when the picker
+// misbehaves, so it has to either work or say why not.
+const openHC = async toast => {
+  if (!(await openHealthConnectSettings())) {
+    toast(t('Couldn’t open Health Connect. Open Android Settings → Security & privacy → Health Connect.'))
+  }
+}
 
 function SetupSheet({ close, toast }) {
   const [busy, setBusy] = useState(false)
@@ -90,7 +168,7 @@ function SetupSheet({ close, toast }) {
     {problem === 'denied' && (
       <div className="wnote"><Icon name="info" /><div>
         {t('Heart rate wasn’t granted, so there is nothing to read. You can change it in Health Connect.')}
-        <Button size="sm" variant="plain" onClick={openHealthConnectSettings}>{t('Open Health Connect')}</Button>
+        <Button size="sm" variant="plain" onClick={() => openHC(toast)}>{t('Open Health Connect')}</Button>
       </div></div>
     )}
     {problem === 'no-plugin' && (
@@ -101,7 +179,7 @@ function SetupSheet({ close, toast }) {
         <Icon name="info" />
         <div>
           <div>{t('Health Connect didn’t respond. Try again, or open it yourself and allow Gemak.')}</div>
-          <Button size="sm" variant="plain" onClick={openHealthConnectSettings}>{t('Open Health Connect')}</Button>
+          <Button size="sm" variant="plain" onClick={() => openHC(toast)}>{t('Open Health Connect')}</Button>
         </div>
       </div>
     )}
@@ -110,7 +188,7 @@ function SetupSheet({ close, toast }) {
         <Icon name="info" />
         <div>
           <div>{t('The permission screen didn’t open. Allow Gemak from Health Connect, then try again.')}</div>
-          <Button size="sm" variant="plain" onClick={openHealthConnectSettings}>{t('Open Health Connect')}</Button>
+          <Button size="sm" variant="plain" onClick={() => openHC(toast)}>{t('Open Health Connect')}</Button>
         </div>
       </div>
     )}
@@ -139,6 +217,10 @@ function SetupSheet({ close, toast }) {
       {busy ? t('Waiting for Health Connect…') : t('Allow access')}
     </Button>
     <div style={{ height: 8 }} />
+    <Button size="sm" variant="plain" icon="info" onClick={() => openDiagnose(toast)}>
+      {t('Connection check')}
+    </Button>
+    <div style={{ height: 4 }} />
     <p className="dim small" style={{ textAlign: 'center', lineHeight: 1.5 }}>
       {t('Nothing leaves your phone. Gemak reads the on-device store — it never sees a Google or Huawei account.')}
     </p>
@@ -251,6 +333,11 @@ export default function WatchCard({ toast }) {
             <Button size="sm" variant="primary" icon="watch" onClick={open}>{t('Connect')}</Button>
           </div>
         </div>
+        <Row icon="gear" iconTint="var(--grey)" title={t('Open Health Connect')} accessory="chevron"
+          onClick={() => openHC(toast)} />
+        <Row icon="info" iconTint="var(--label-3)" title={t('Connection check')}
+          subtitle={t('What this phone reports, when linking won’t work')}
+          accessory="chevron" onClick={() => openDiagnose(toast)} />
       </Section>
     )
   }
@@ -308,7 +395,7 @@ export default function WatchCard({ toast }) {
       <Row icon="history" iconTint={conn.history ? 'var(--green)' : 'var(--label-3)'}
         title={conn.history ? t('Full history allowed') : t('Last 30 days only')}
         subtitle={conn.history ? null : t('Health Connect caps older data unless you allow history.')}
-        accessory="chevron" onClick={openHealthConnectSettings} />
+        accessory="chevron" onClick={() => openHC(toast)} />
 
       {/* Older days, on request only. Never at boot: a year is hundreds of
           round trips, and it stops on its own once the readings run out rather
@@ -319,7 +406,7 @@ export default function WatchCard({ toast }) {
         accessory={fill == null ? 'chevron' : 'none'}
         onClick={fill == null ? backfill : undefined} />
 
-      <Row icon="gear" iconTint="var(--grey)" title={t('Manage in Health Connect')} accessory="chevron" onClick={openHealthConnectSettings} />
+      <Row icon="gear" iconTint="var(--grey)" title={t('Manage in Health Connect')} accessory="chevron" onClick={() => openHC(toast)} />
       <Row icon="trash" iconTint="var(--red)" title={t('Unlink watch')} danger onClick={unlink} />
     </Section>
   )
