@@ -33,7 +33,7 @@ vi.mock('./health-connect.js', () => ({
   readExerciseSessions: async () => ({ ok: true, sessions: [] }),
 }))
 
-const { syncDay, syncRecentDays } = await import('./health-sync.js')
+const { syncDay, syncRecentDays, bootHealth } = await import('./health-sync.js')
 
 beforeEach(() => {
   order.length = 0
@@ -96,7 +96,15 @@ describe('logLine', () => {
     })).toBe('Probe: 3 records, 8400 steps from com.healthsync (220 ms)')
   })
 
-  it('shows checking immediately, before any native call', () => {
-    expect(logLine({ step: 'checking' })).toBe('Checking permissions…')
+  it('starts the pull on a steps read, not a permission check', () => {
+    expect(logLine({ step: 'probe', state: 'start' })).toBe('Testing a one-day steps read…')
+    expect(logLine({ step: 'probe', state: 'start' })).not.toBe('Checking permissions…')
+  })
+})
+
+describe('bootHealth', () => {
+  it('does not touch Health Connect when the link is off', async () => {
+    updateConn(c => { c.state = 'off' })
+    await expect(bootHealth([])).resolves.toBe(false)
   })
 })

@@ -53,8 +53,8 @@ function Shell() {
   // Coming back to the app is the only moment health data can be refreshed: the
   // app deliberately never asks for background read access, and Health Sync
   // writes minutes late anyway, so "on resume" is both the earliest and the
-  // cheapest time to catch up. This also re-checks the permission, which Android
-  // withdraws on its own after about a month away.
+  // cheapest time to catch up. Permission is not re-checked here — that binder
+  // call is what froze Pull on Honor while every type was already granted.
   useEffect(() => {
     if (!ready || !MOBILE) return
     const onShow = () => {

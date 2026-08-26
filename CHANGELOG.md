@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.5.4 — 2026-08-26
+
+Pull sat on **1% / Checking permissions…** even with every Health Connect type
+already granted. The grant was never the problem — `checkAuthorization` on
+Honor never returns, and Pull waited on it before reading a single step.
+
+- Pull no longer checks permissions. The log's first line is a one-day steps
+  read (the call diagnose already proved works in tens of milliseconds).
+- Settings does not start `checkAuthorization` on mount, and resume does not
+  start it either unless the watch is already linked.
+- Probe is called directly, not queued behind a hung auth call.
+
 ## v1.5.3 — 2026-08-26
 
 The connection check on Honor read 7,496 steps in 65ms while **Pull watch data**

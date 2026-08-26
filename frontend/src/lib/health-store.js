@@ -199,7 +199,7 @@ export const READ_SCOPES = [
 import { Capacitor, registerPlugin } from '@capacitor/core'
 
 let plugin = null
-export async function healthPlugin() {
+export function healthPlugin() {
   if (!MOBILE) return null
   if (plugin) return plugin
   // Vite with VITE_MOBILE=1 still runs on the web platform during `npm run dev`.
@@ -211,15 +211,19 @@ export async function healthPlugin() {
   return plugin
 }
 
-// One Health Connect call at a time. WatchCard's mount check, the resume
-// boot, the connection-check probe, and the pull button all talk to the
-// same Honor binder; two at once is how a working diagnose (7496 steps in
-// 65ms) sat next to a pull frozen on 0%.
+// One Health Connect call at a time for the silent resume path. The pull
+// button does not wait on this chain — 1.5.3 froze on "checking
+// permissions…" because probe sat behind a checkAuthorization that never
+// returned, with every type already granted.
 let healthChain = Promise.resolve()
 export function enqueueHealth(fn) {
   const run = healthChain.then(fn, fn)
   healthChain = run.then(() => {}, () => {})
   return run
+}
+
+export function resetHealthQueue() {
+  healthChain = Promise.resolve()
 }
 
 let pullBusy = false
@@ -378,7 +382,9 @@ export async function refreshLinkState() {
 // Unlinking drops what came from the watch. It never touches the training log —
 // those are the user's own entries and have nothing to do with the device.
 export function disconnectWatch() {
-  healthPlugin().then(p => p?.signOut?.()).catch(() => {})
+  // Do not Promise-chain the plugin handle: Capacitor's proxy treats `.then`
+  // as a native method name, which never returns.
+  try { healthPlugin()?.signOut?.() } catch (e) { /* local unlink still happens */ }
   updateHealth(h => {
     h.conn = { ...clone(DEF_HEALTH.conn) }
     h.days = {}
@@ -421,10 +427,6 @@ export async function openHealthConnectPermissions() {
   } catch (e) { return false }
 }
 
-/**
- * Read what is already granted. Does not launch a permission picker — Honor
- * and Huawei hang on that sheet. Allow from Health Connect first.
- */
 // Bounded, because this is a lazy chunk — a fetch through the service worker,
 // not a function call. An unbounded await on one of these is exactly what left
 // the update card and the connection check spinning with nothing to show.
@@ -433,28 +435,33 @@ export const loadHealthSync = () => withTimeout(import('./health-sync.js'), 1000
 export async function pullWatchData(days = 7, onProgress) {
   const note = (frac, info) => { try { onProgress?.(frac, info) } catch (e) { /* UI */ } }
   pullBusy = true
-  note(0.01, { step: 'checking' })
-  const p = await healthPlugin()
+  // Drop a queued checkAuthorization so days-sync after the probe does not
+  // sit behind it. Probe itself is called directly, not through this queue.
+  resetHealthQueue()
+  note(0.05, { step: 'probe', state: 'start' })
+  const p = healthPlugin()
   if (!p) {
     pullBusy = false
     return { ok: false, reason: 'no-plugin' }
   }
 
-  // Do not call checkAuthorization here. Settings already fires that on
-  // mount, and a second binder call is what froze the pull at 0% while
-  // diagnose — the same probe — returned 7,496 steps in 65ms. Probe is
-  // the grant check: not-authorized means we need permission, data means
-  // we are allowed, and the steps land in today's row before anything
-  // else can hang.
-  note(0.05, { step: 'probe', state: 'start' })
   let probe = null
   try {
     const now = Date.now()
     if (typeof p.probe !== 'function') {
       note(0.1, { step: 'probe', state: 'skip' })
+      updateConn(c => {
+        c.state = 'ok'
+        c.grantedAt = c.grantedAt || Date.now()
+        c.provider = c.provider || 'health-connect'
+        if (!c.deviceLabel) c.deviceLabel = 'Huawei Watch Fit 4'
+      })
     } else {
-      probe = await enqueueHealth(() =>
-        withTimeout(p.probe({ start: now - 86400000, end: now }), 12000, 'timeout'),
+      // Not enqueueHealth: diagnose already proved probe returns in tens of
+      // milliseconds when nothing else is holding the binder.
+      probe = await withTimeout(
+        p.probe({ start: now - 86400000, end: now }),
+        8000, 'timeout',
       )
       const origins = Array.isArray(probe?.origins)
         ? probe.origins
@@ -489,9 +496,14 @@ export async function pullWatchData(days = 7, onProgress) {
     const reason = rejectReason(e, 'timeout')
     probe = { ok: false, reason }
     note(0.15, { step: 'probe', state: 'fail', reason })
-    pullBusy = false
-    if (reason === 'denied') return { ok: false, reason: 'need-permission' }
-    return { ok: false, reason }
+    if (reason === 'denied') {
+      pullBusy = false
+      return { ok: false, reason: 'need-permission' }
+    }
+    if (reason !== 'no-plugin') {
+      pullBusy = false
+      return { ok: false, reason }
+    }
   }
 
   try {
@@ -527,11 +539,8 @@ export async function pullWatchData(days = 7, onProgress) {
  */
 export async function diagnoseHealth() {
   let p
-  // healthPlugin() awaits a dynamic import, which is a chunk fetch on the mobile
-  // build — bounded like everything else, because an unbounded await here is
-  // what left the check itself sitting on "Checking…".
   try {
-    p = await withTimeout(healthPlugin(), 5000, 'timeout')
+    p = healthPlugin()
   } catch (e) {
     return { error: 'could not get the plugin handle: ' + (e?.message || e) }
   }

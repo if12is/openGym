@@ -14,7 +14,7 @@
 
 import {
   getHealth, getConn, getSession, updateHealth, pruneHealth,
-  refreshLinkState, loadHealthFromDisk, isPullingHealth,
+  loadHealthFromDisk, isPullingHealth,
 } from './health-store.js'
 import { aggregate, readHeartRate, readSleep, readRestingHeartRate, readExerciseSessions, readRecovery } from './health-connect.js'
 import {
@@ -295,14 +295,12 @@ export async function backfillDays(fromIso, toIso, onProgress) {
 // Called once from the store's boot, and again on every resume.
 export async function bootHealth(workouts) {
   await loadHealthFromDisk()
-  // A tap on Pull already owns the binder. Starting a silent two-day
-  // sync on resume is how that tap sat on 0% next to a diagnose that
-  // had just read the same store in 65ms.
-  if (isPullingHealth()) return false
-  const state = await refreshLinkState()
-  if (isPullingHealth()) return false
   pruneHealth((workouts || []).map(w => w.id))
-  if (state !== 'ok') return false
+  if (isPullingHealth()) return false
+  // Do not call checkAuthorization here. On Honor that binder call is what
+  // froze Pull on "checking permissions…" — the grant is already in Health
+  // Connect, and probe is the check that actually returns.
+  if (getConn().state !== 'ok') return false
   await syncRecentDays(2)
   await retryPending(workouts || [])
   recomputeBaselines(workouts)

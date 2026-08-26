@@ -241,8 +241,8 @@ function SetupSheet({ close, toast }) {
 
   const go = async () => {
     setBusy(true)
-    setPct(1)
-    const startLine = logLine({ step: 'checking' })
+    setPct(5)
+    const startLine = logLine({ step: 'probe', state: 'start' })
     setPullLog(startLine ? [startLine] : [])
     setProblem(null)
     try {
@@ -418,7 +418,6 @@ export default function WatchCard({ toast }) {
 
   useEffect(() => {
     const off = subscribeHealth(() => setConn({ ...getConn() }))
-    refreshLinkState()
     return off
   }, [])
 
@@ -426,8 +425,8 @@ export default function WatchCard({ toast }) {
 
   const pull = async () => {
     setPulling(true)
-    setPullPct(1)
-    const startLine = logLine({ step: 'checking' })
+    setPullPct(5)
+    const startLine = logLine({ step: 'probe', state: 'start' })
     setPullLog(startLine ? [startLine] : [])
     try {
       const res = await pullWatchData(7, (p, info) => {
