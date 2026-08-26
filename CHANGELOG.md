@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.5.2 — 2026-08-26
 
 Honor with every Health Connect type granted still sat on **0%** and pulled nothing.
 The first day's four reads ran in parallel against a binder that never returns, and
