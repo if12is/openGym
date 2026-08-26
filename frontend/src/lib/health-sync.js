@@ -16,6 +16,7 @@ import {
   getHealth, getConn, getSession, getDay, updateHealth, pruneHealth,
   loadHealthFromDisk, isPullingHealth,
 } from './health-store.js'
+import { looksLikeHonorBridge } from './health-origins.js'
 import { aggregate, readHeartRate, readSleep, readRestingHeartRate, readExerciseSessions, readRecovery } from './health-connect.js'
 import {
   gymWindow, hrWindow, localDayRange, hrStats, zoneMinutes, trimp,
@@ -29,11 +30,18 @@ const linked = () => getConn().state === 'ok'
 // After the first calorie or recovery timeout, later days skip that metric.
 // Walking 30 days that each wait 12s on a hung calorie read is how 15%
 // looked frozen after the probe had already returned today's steps.
+//
+// On Honor/Health Sync the timeout never arrives: ActiveCaloriesBurnedRecord
+// occupies the binder and Capacitor never settles. Skip those metrics from
+// the first day when the probe already saw Health Sync / Honor Health.
 let skipKcal = false
 let skipRecovery = false
 export function resetPullSkips() {
-  skipKcal = false
-  skipRecovery = false
+  const c = getConn()
+  const honor = !!c.honor || looksLikeHonorBridge(c.origins)
+  skipKcal = honor
+  skipRecovery = honor
+  return { skipKcal, skipRecovery }
 }
 
 /* ============================ daily rows ============================ */
@@ -135,8 +143,8 @@ export async function syncDay(iso, onStep) {
   const row = {}
   if (agg.ok) {
     row.steps = agg.steps
-    row.kcalActive = agg.activeCalories
-    row.kcalTotal = agg.totalCalories
+    if (agg.activeCalories != null) row.kcalActive = agg.activeCalories
+    if (agg.totalCalories != null) row.kcalTotal = agg.totalCalories
   }
   if (sleep.ok) {
     const main = mainSleep(sleep.sessions, iso)
@@ -172,7 +180,9 @@ export async function syncDay(iso, onStep) {
 // used to be four silent queries, so a hang looked like 0% forever.
 export async function syncRecentDays(days = 2, onProgress) {
   if (!linked()) return 0
-  resetPullSkips()
+  const skips = resetPullSkips()
+  if (skips.skipKcal) onProgress?.(0, { step: 'skip-kcal' })
+  if (skips.skipRecovery) onProgress?.(0, { step: 'skip-recovery' })
   const out = []
   const base = new Date()
   const totalReads = Math.max(1, days * 4)

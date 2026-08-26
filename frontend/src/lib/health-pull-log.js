@@ -88,5 +88,17 @@ export function logLine(info) {
   }
   if (info.step === 'stopped') return t('Stopped: Health Connect is not answering reads')
   if (info.step === 'done') return t('Finished reading')
+  if (info.step === 'skip-kcal') {
+    return t('Skipping calories on this phone — they hang Health Connect. Continuing with sleep.')
+  }
+  if (info.step === 'skip-recovery') {
+    return t('Skipping recovery readings on this phone — continuing.')
+  }
+  if (info.step === 'history' && info.state === 'ok') {
+    return t('History access is on — reading up to a year.')
+  }
+  if (info.step === 'history') {
+    return t('No past-data access — about 30 days only. Health Connect → App access → Additional access.')
+  }
   return null
 }

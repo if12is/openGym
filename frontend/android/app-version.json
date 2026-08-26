@@ -1,6 +1,6 @@
 {
-  "versionName": "1.5.5",
-  "versionCode": 9,
+  "versionName": "1.5.6",
+  "versionCode": 10,
   "apkUrl": "https://github.com/if12is/openGym/releases/download/android-latest/gemak-debug.apk",
   "repo": "if12is/openGym"
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  pickWatchOrigin, originLabel, isPhoneOrigin,
+  pickWatchOrigin, originLabel, isPhoneOrigin, looksLikePackage, looksLikeHonorBridge,
   HEALTH_SYNC_PKG, HONOR_HEALTH_PKG,
 } from './health-origins.js'
 
@@ -30,5 +30,17 @@ describe('pickWatchOrigin', () => {
   it('names the known writers', () => {
     expect(originLabel(HEALTH_SYNC_PKG)).toBe('Health Sync')
     expect(originLabel('com.android.healthconnect.phone')).toBe('Phone')
+  })
+
+  it('does not treat a hex id as a package name', () => {
+    expect(looksLikePackage('8eac7881e0f1ab')).toBe(false)
+    expect(originLabel('8eac7881e0f1ab')).toBe('Watch')
+    expect(pickWatchOrigin(['8eac7881e0f1ab', HEALTH_SYNC_PKG])).toBe(HEALTH_SYNC_PKG)
+    expect(pickWatchOrigin(['8eac7881e0f1ab'])).toBe(null)
+  })
+
+  it('recognises Health Sync as the Honor/Huawei bridge', () => {
+    expect(looksLikeHonorBridge([HEALTH_SYNC_PKG, HONOR_HEALTH_PKG])).toBe(true)
+    expect(looksLikeHonorBridge(['com.android.healthconnect.phone'])).toBe(false)
   })
 })

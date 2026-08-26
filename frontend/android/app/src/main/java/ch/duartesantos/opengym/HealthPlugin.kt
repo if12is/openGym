@@ -731,6 +731,12 @@ class HealthPlugin : Plugin() {
     @PluginMethod
     fun readRecovery(call: PluginCall) {
         if (huaweiRead(call) { HealthHuawei.readRecovery(context, call) }) return
+        // SpO2 / HRV on Honor hang the same binder as calories. Return empty
+        // rather than occupy it for 10s per day of the walk.
+        if (HealthHuawei.isHuaweiFamily()) {
+            call.resolve(JSObject().put("spo2", JSArray()).put("hrv", JSArray()))
+            return
+        }
         val filter = range(call) ?: run { call.reject("bad-range"); return }
         val origins = originsOf(call)
         run(call) {
@@ -791,8 +797,9 @@ class HealthPlugin : Plugin() {
                 o.put("end", rec.endTime.toEpochMilli())
                 o.put("type", exerciseName(rec.exerciseType))
                 // The session record carries no energy of its own, so the burn is
-                // aggregated over the window it occupied.
-                if (c != null) {
+                // aggregated over the window it occupied. Honor's aggregate()
+                // hangs, so skip the extra call there.
+                if (c != null && !HealthHuawei.isHuaweiFamily()) {
                     val kcal = runCatching {
                         c.aggregate(
                             AggregateRequest(
@@ -832,6 +839,11 @@ class HealthPlugin : Plugin() {
                 val honor = HealthHuawei.isHuaweiFamily()
                 val ret = JSObject()
                 for (metric in wanted) {
+                    // ActiveCaloriesBurnedRecord / TotalCaloriesBurnedRecord
+                    // occupy Honor's binder and never return. JS timeouts cannot
+                    // abort that, so 1.5.5 sat on 16% "reading calories". Skip
+                    // them here; steps/sleep/rhr still run.
+                    if (honor && (metric == "activeCalories" || metric == "totalCalories")) continue
                     val v = runTimed(3_500) {
                         runBlocking { readMetric(metric, filter, requested, honor) }
                     } ?: continue
@@ -863,9 +875,9 @@ class HealthPlugin : Plugin() {
         val req = if (honor) emptySet() else requested
         return when (metric) {
             "steps" -> readAll<StepsRecord>(filter, req).fromPreferred(requested).sumOf { it.count }.toDouble()
-            "activeCalories" -> readAll<ActiveCaloriesBurnedRecord>(filter, req)
+            "activeCalories" -> if (honor) 0.0 else readAll<ActiveCaloriesBurnedRecord>(filter, req)
                 .fromPreferred(requested).sumOf { it.energy.inKilocalories }
-            "totalCalories" -> readAll<TotalCaloriesBurnedRecord>(filter, req)
+            "totalCalories" -> if (honor) 0.0 else readAll<TotalCaloriesBurnedRecord>(filter, req)
                 .fromPreferred(requested).sumOf { it.energy.inKilocalories }
             else -> 0.0
         }
@@ -901,6 +913,7 @@ class HealthPlugin : Plugin() {
                 .put("ms", System.currentTimeMillis() - t0)
                 .put("origins", origins)
                 .put("origin", picked ?: "")
+                .put("honor", HealthHuawei.isHuaweiFamily())
         }
     }
 
@@ -921,7 +934,7 @@ class HealthPlugin : Plugin() {
             readAll<HeartRateRecord>(filter, emptySet()).forEach { pkgs.add(it.metadata.dataOrigin.packageName) }
             val pm = context.packageManager
             val out = JSArray()
-            pkgs.filter { it.isNotBlank() }.forEach { pkg ->
+            pkgs.filter { it.isNotBlank() && it.contains('.') }.forEach { pkg ->
                 val o = JSObject()
                 o.put("pkg", pkg)
                 o.put("label", runCatching {

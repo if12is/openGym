@@ -18,6 +18,7 @@ import { useHealth } from './HealthCards.jsx'
 import { bridgeReport } from '../lib/bridge-report.js'
 import { listOrigins } from '../lib/health-connect.js'
 import { logLine } from '../lib/health-pull-log.js'
+import { pickWatchOrigin, originLabel, looksLikePackage, cleanOrigins } from '../lib/health-origins.js'
 import { confirmSheet } from '../sheets.jsx'
 import { Section, Row, Button } from './ui.jsx'
 import WatchDevice from './WatchDevice.jsx'
@@ -405,7 +406,14 @@ const syncNowAsync = async (days = 2) => {
 async function rememberOrigins() {
   const end = Date.now()
   const r = await listOrigins(end - 7 * 86400000, end)
-  if (r.ok && r.origins.length) updateConn(c => { c.origins = r.origins })
+  if (!r.ok || !r.origins.length) return
+  const pkgs = cleanOrigins(r.origins)
+  if (!pkgs.length) return
+  updateConn(c => {
+    c.origins = pkgs.map(pkg => ({ pkg, label: originLabel(pkg) }))
+    if (c.trusted && !looksLikePackage(c.trusted)) c.trusted = null
+    if (!c.trusted) c.trusted = pickWatchOrigin(pkgs)
+  })
 }
 
 export default function WatchCard({ toast }) {
@@ -493,7 +501,7 @@ export default function WatchCard({ toast }) {
   }
 
   const pickSource = () => {
-    const origins = conn.origins || []
+    const origins = (conn.origins || []).filter(o => looksLikePackage(o.pkg))
     if (!origins.length) { toast(t('No sources seen yet — sync once first')); return }
     useUI.getState().openSheet(close => <>
       <h3>{t('Read from')}</h3>
@@ -501,7 +509,10 @@ export default function WatchCard({ toast }) {
         {t('Your phone counts steps too. Picking one source stops the same walk being counted twice.')}
       </p>
       <div className="sect-b">
-        {[{ pkg: null, label: t('All sources') }, ...origins].map(o => (
+        {[{ pkg: null, label: t('All sources') }, ...origins.map(o => ({
+          pkg: o.pkg,
+          label: originLabel(o.pkg) || o.label,
+        }))].map(o => (
           <button key={o.pkg || 'all'} className="lrow tap"
             onClick={() => { close(); updateConn(c => { c.trusted = o.pkg }); syncNowAsync(2) }}>
             <span className="lrow-m"><span className="lrow-t">{o.label}</span></span>
@@ -562,7 +573,8 @@ export default function WatchCard({ toast }) {
 
   const lastSync = conn.lastSyncAt ? fmtDate(isoOf(new Date(conn.lastSyncAt)), true) : null
   const today = health.days[isoOf(new Date())] || {}
-  const trusted = (conn.origins || []).find(o => o.pkg === conn.trusted)
+  const trustedPkg = looksLikePackage(conn.trusted) ? conn.trusted : pickWatchOrigin(conn.origins)
+  const readFrom = trustedPkg ? originLabel(trustedPkg) : t('All sources')
 
   return (
     <Section title={t('Watch & health')}
@@ -590,7 +602,7 @@ export default function WatchCard({ toast }) {
 
       {!huawei && (
         <Row icon="shuffle" iconTint="var(--blue)" title={t('Read from')}
-          value={trusted ? trusted.label : t('All sources')}
+          value={readFrom}
           accessory="chevron" onClick={pickSource} />
       )}
 

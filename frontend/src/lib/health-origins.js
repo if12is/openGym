@@ -30,8 +30,36 @@ const LABELS = {
   android: 'Phone',
 }
 
+// Android package names have a dot. Health Connect on some Honor builds
+// hands back a hex id instead, which is what "Read from" showed as
+// `8eac7881e…` — not a source anyone can pick.
+export function looksLikePackage(pkg) {
+  if (typeof pkg !== 'string' || !pkg.includes('.')) return false
+  if (pkg.length > 180) return false
+  return /^[a-zA-Z][\w-]*(\.[a-zA-Z][\w-]*)+$/.test(pkg)
+}
+
+export function pkgOf(entry) {
+  if (typeof entry === 'string') return entry
+  return entry?.pkg || ''
+}
+
+export function cleanOrigins(pkgs) {
+  return (pkgs || []).map(pkgOf).filter(looksLikePackage)
+}
+
+export function looksLikeHonorBridge(pkgs) {
+  return (pkgs || []).map(pkgOf).some(p => {
+    const s = String(p).toLowerCase()
+    return s.includes('healthsync') || s.includes('hihonor') || s.includes('huawei.health')
+  })
+}
+
 export function originLabel(pkg) {
-  return LABELS[pkg] || pkg
+  if (!pkg) return ''
+  if (LABELS[pkg]) return LABELS[pkg]
+  if (!looksLikePackage(pkg)) return 'Watch'
+  return pkg
 }
 
 export function isPhoneOrigin(pkg) {
@@ -39,7 +67,7 @@ export function isPhoneOrigin(pkg) {
 }
 
 export function pickWatchOrigin(pkgs) {
-  const list = (pkgs || []).map(p => (typeof p === 'string' ? p : p?.pkg)).filter(Boolean)
+  const list = cleanOrigins(pkgs)
   for (const p of WATCH_WRITERS) {
     if (list.includes(p)) return p
   }

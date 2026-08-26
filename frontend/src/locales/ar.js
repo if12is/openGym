@@ -901,6 +901,14 @@ export default {
   'Steps {0}: none recorded': 'خطوات {0}: مفيش',
   'Calories {0}: {1}': 'سعرات {0}: {1}',
   'Calories {0}: none recorded': 'سعرات {0}: مفيش',
+  'Skipping calories on this phone — they hang Health Connect. Continuing with sleep.':
+    'بعدّي السعرات على الموبايل ده — بتعليق Health Connect. هكمّل بالنوم.',
+  'Skipping recovery readings on this phone — continuing.':
+    'بعدّي قراءات التعافي على الموبايل ده — هكمّل.',
+  'History access is on — reading up to a year.':
+    'صلاحية التاريخ شغّالة — هقرا لحد سنة.',
+  'No past-data access — about 30 days only. Health Connect → App access → Additional access.':
+    'مفيش وصول للتاريخ القديم — حوالي ٣٠ يوم. Health Connect ← صلاحيات التطبيق ← صلاحيات إضافية.',
   'Sleep {0}: {1} sessions': 'نوم {0}: {1} جلسة',
   'Sleep {0}: none recorded': 'نوم {0}: مفيش',
   'Resting HR {0}: {1} bpm': 'نبض الراحة {0}: {1}',

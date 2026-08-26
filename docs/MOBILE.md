@@ -115,6 +115,11 @@ therefore splits the flow:
 The watch still talks to Huawei Health first. A bridge such as Health Sync
 copies that into Health Connect; Gemak then reads the on-device store.
 
+Calories and recovery reads hang the Health Connect binder on Honor, so
+those two metrics are skipped there. Steps, sleep and resting pulse still
+come through. History older than ~30 days needs Health Connect → App access
+→ Additional access → Access past data.
+
 Huawei Health Kit remains available when `agconnect-services.json` is in the
 APK (see [HUAWEI_HEALTH.md](HUAWEI_HEALTH.md)). Without that file, Honor/Huawei
 phones use Health Connect so Health Sync data is not hidden behind a Kit that
