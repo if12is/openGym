@@ -871,6 +871,11 @@ export default {
   // screenshotted and sent, so it has to read to the person holding the phone.
   'Connection check': 'فحص الاتصال',
   'App bridge': 'جسر التطبيق',
+  'Settings routes': 'طرق فتح الإعدادات',
+  'Asks for permission here. If Android doesn’t show it, Health Connect opens instead.':
+    'بيطلب الإذن من هنا. لو أندرويد ماعرضهوش، هيفتحلك Health Connect بدلها.',
+  'Tap Allow access. Android shows its own permission screen — at minimum turn on heart rate. If it doesn’t appear, Health Connect opens so you can turn Gemak on there.':
+    'اضغط «اسمح بالوصول». أندرويد هيعرض شاشة الصلاحيات بتاعته — شغّل على الأقل نبض القلب. ولو ماظهرتش، هيفتحلك Health Connect عشان تشغّل چيمك من هناك.',
   'Platform': 'المنصّة',
   'Mobile build': 'نسخة موبايل',
   'Health plugin methods': 'دوال إضافة الصحة',

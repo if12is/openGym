@@ -98,6 +98,11 @@
         <intent>
             <action android:name="android.health.connect.action.HEALTH_HOME_SETTINGS" />
         </intent>
+        <!-- Last-resort route, and the one that always exists. Declared because
+             the launcher now resolves every candidate before starting it. -->
+        <intent>
+            <action android:name="android.settings.APPLICATION_DETAILS_SETTINGS" />
+        </intent>
     </queries>
 
     <!-- Permissions -->

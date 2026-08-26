@@ -234,26 +234,62 @@ class HealthPlugin : Plugin() {
      * Prefer the per-app page (MANAGE_HEALTH_PERMISSIONS + package name) so the
      * user lands on Gemak's toggles rather than Health Connect's home.
      */
-    private fun launchHealthConnectPermissionScreen(): String? {
+    private fun permissionScreenCandidates(): List<Intent> {
         val pkg = context.packageName
         val tries = mutableListOf<Intent>()
-        tries.add(
-            Intent(ACTION_MANAGE_HEALTH_PERMISSIONS).putExtra(Intent.EXTRA_PACKAGE_NAME, pkg)
-        )
-        tries.add(
-            Intent(ACTION_ANDROIDX_MANAGE_HEALTH_PERMISSIONS).putExtra(Intent.EXTRA_PACKAGE_NAME, pkg)
-        )
-        if (Build.VERSION.SDK_INT >= 34) tries.add(Intent(ACTION_HEALTH_HOME_SETTINGS))
+        if (Build.VERSION.SDK_INT >= 34) {
+            // Per-app page first, then the platform's Health Connect home. On 14+
+            // the OS owns Health Connect; the androidx actions below belong to the
+            // standalone provider APK, which on these devices is a leftover shell.
+            tries.add(Intent(ACTION_MANAGE_HEALTH_PERMISSIONS).putExtra(Intent.EXTRA_PACKAGE_NAME, pkg))
+            tries.add(Intent(ACTION_HEALTH_HOME_SETTINGS))
+        }
+        tries.add(Intent(ACTION_ANDROIDX_MANAGE_HEALTH_PERMISSIONS).putExtra(Intent.EXTRA_PACKAGE_NAME, pkg))
         tries.add(Intent(HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS))
         if (Build.VERSION.SDK_INT < 34) tries.add(Intent(ACTION_HEALTH_HOME_SETTINGS))
-        tries.add(
-            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                .setData(Uri.parse("package:$pkg"))
-        )
-        for (intent in tries) {
+        // Always reachable, and its Permissions entry gets to the same place.
+        tries.add(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).setData(Uri.parse("package:$pkg")))
+        return tries
+    }
+
+    /**
+     * Starts the first candidate that resolves to a real activity.
+     *
+     * Resolving first is the whole point. startActivity() not throwing is not
+     * evidence that anything opened: on Android 14+ the leftover
+     * com.google.android.apps.healthdata shell still answers the androidx
+     * actions, starts, and finishes immediately. That reported success while the
+     * screen never changed and no error was shown — a tap that did nothing at
+     * all, which is exactly how this looked on the phone.
+     *
+     * resolveActivity() is subject to package visibility, so every action here
+     * has a matching <intent> in the manifest's <queries>.
+     */
+    private fun launchHealthConnectPermissionScreen(): String? {
+        val pm = context.packageManager
+        for (intent in permissionScreenCandidates()) {
+            if (pm.resolveActivity(intent, 0) == null) continue
             if (startExternal(intent)) return intent.action ?: "opened"
         }
+        // Nothing resolved. Rather than report failure while a working route
+        // exists, try them once more without the resolve check — a device that
+        // filters the lookup can still honour the start.
+        for (intent in permissionScreenCandidates()) {
+            if (startExternal(intent)) return (intent.action ?: "opened") + " (unverified)"
+        }
         return null
+    }
+
+    /** Which candidates the device can actually open, for the connection check. */
+    private fun permissionScreenReport(): JSArray {
+        val pm = context.packageManager
+        val out = JSArray()
+        permissionScreenCandidates().forEach { intent ->
+            val info = pm.resolveActivity(intent, 0)
+            val label = (intent.action ?: "?").substringAfterLast('.')
+            out.put(if (info == null) "$label: no" else "$label: ${info.activityInfo?.packageName ?: "yes"}")
+        }
+        return out
     }
 
     private fun startExternal(intent: Intent): Boolean {
@@ -825,6 +861,10 @@ class HealthPlugin : Plugin() {
                 out.put("pickerAction", intent?.action ?: "could not build")
                 out.put("pickerPackage", intent?.`package` ?: "none")
                 out.put("pickerResolves", intent != null && pm.resolveActivity(intent, 0) != null)
+                // Which settings deep links this device can actually open, and
+                // which app answers each. A route that reports "no" here but was
+                // being started anyway is a tap that does nothing.
+                out.put("settingsRoutes", permissionScreenReport())
             } else {
                 out.put("pickerAction", "no activity")
             }

@@ -11,7 +11,7 @@ import { t } from '../lib/i18n.js'
 import { fmtDate, isoOf } from '../lib/format.js'
 import {
   getConn, subscribeHealth, refreshLinkState, disconnectWatch,
-  openHealthConnectPermissions, installHealthConnect,
+  openHealthConnectPermissions, installHealthConnect, connectWatch,
   updateConn, getHealth, diagnoseHealth, checkAvailability, pullWatchData,
 } from '../lib/health-store.js'
 import { bridgeReport } from '../lib/bridge-report.js'
@@ -31,7 +31,7 @@ const SETUP_HC = [
   ['Pair the watch with Huawei Health', 'That is the app your watch actually talks to. Your readings have to land there first.'],
   ['Install Health Sync, set the destination to Health Connect', 'Huawei Health does not write to Health Connect on its own. Pick Health Connect — not Google Fit.'],
   ['Run one sync', 'Open Health Sync and let it push once, so there is something here to read.'],
-  ['Allow Gemak in Health Connect', 'Honor and Huawei almost never show a permission popup. Use Allow from Health Connect in Settings, turn Gemak on there, then pull the data.'],
+  ['Allow Gemak in Health Connect', 'Tap Allow access. Android shows its own permission screen — at minimum turn on heart rate. If it doesn’t appear, Health Connect opens so you can turn Gemak on there.'],
 ]
 
 function DiagnoseSheet({ toast }) {
@@ -61,6 +61,10 @@ function DiagnoseSheet({ toast }) {
     [t('Full check answers'), b.diagnoseProbe || '—'],
   ] : []
 
+  const routeRow = data?.settingsRoutes?.length
+    ? [[t('Settings routes'), data.settingsRoutes.join(' · ')]]
+    : []
+
   // Prefer the store's readout, fall back to the one the bridge report took
   // directly off the plugin — so this section fills in even when the store
   // cannot produce a handle.
@@ -84,6 +88,7 @@ function DiagnoseSheet({ toast }) {
     [t('Data connection'), data.clientBinds ? t('Works') : t('Timed out')],
     [t('Allowed right now'), data.grantedCount < 0 ? t('Could not read') : String(data.grantedCount)],
     [t('Allowed types'), (data.granted || []).join(', ') || '—'],
+    ...routeRow,
   ].filter(Boolean) : []
 
   const all = [...bridgeRows, ...rows]
@@ -148,21 +153,42 @@ const openHC = async toast => {
   }
 }
 
+/**
+ * Ask for access — properly, then as a fallback.
+ *
+ * The in-app request goes first. From Android 14 health permissions are ordinary
+ * runtime permissions, so this is the mechanism the OS actually supports, and on
+ * this phone it had never once run: the plugin handle was null until the static
+ * import landed, so no request was ever sent. "Honor never shows the popup" was
+ * a conclusion drawn from that, not from a request that was refused.
+ *
+ * If it still doesn't land, Health Connect's own screen is the fallback — and it
+ * only reports failure once neither route worked.
+ */
+const grantAccess = async (toast, onLinked) => {
+  const res = await connectWatch('Huawei Watch Fit 4')
+  if (res.ok) {
+    toast(t('Watch connected'))
+    onLinked?.()
+    return true
+  }
+  if (await openHealthConnectPermissions()) {
+    toast(t('Turn Gemak on in Health Connect, then pull the data'))
+  } else {
+    toast(t('Couldn’t open Health Connect. Open Android Settings → Security & privacy → Health Connect.'))
+  }
+  return false
+}
+
 function HealthConnectPermissionRow({ toast }) {
   return (
     <Row
       icon="shield"
       iconTint="var(--blue)"
-      title={t('Allow from Health Connect')}
-      subtitle={t('Opens Health Connect so you can turn Gemak on. This is the reliable way on Honor and Huawei.')}
+      title={t('Allow access')}
+      subtitle={t('Asks for permission here. If Android doesn’t show it, Health Connect opens instead.')}
       accessory="chevron"
-      onClick={async () => {
-        if (await openHealthConnectPermissions()) {
-          toast(t('Turn Gemak on in Health Connect, then pull the data'))
-        } else {
-          toast(t('Couldn’t open Health Connect. Open Android Settings → Security & privacy → Health Connect.'))
-        }
-      }}
+      onClick={() => grantAccess(toast, () => pullWatchData(2))}
     />
   )
 }
@@ -308,8 +334,8 @@ function SetupSheet({ close, toast }) {
     )}
 
     <div style={{ height: 6 }} />
-    <Button variant="plain" icon="shield" onClick={() => openHC(toast)}>
-      {t('Allow from Health Connect')}
+    <Button variant="plain" icon="shield" onClick={() => grantAccess(toast, () => { close(); syncNowAsync() })}>
+      {t('Allow access')}
     </Button>
     <div style={{ height: 8 }} />
     <Button variant="primary" icon="download" disabled={busy} onClick={go}>
