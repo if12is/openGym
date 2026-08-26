@@ -1078,14 +1078,16 @@ html[dir="rtl"] .item.in-ss{box-shadow:inset -3px 0 0 var(--acc)}
 /* Live pull readout. The percentage alone sat on 0% while four Health Connect
    queries hung, with no way to tell which. Each line is one native call. */
 .wlog{
-  margin:0 var(--pad) 12px;
-  padding:10px 12px;
+  margin-top:8px;
+  width:100%;
+  padding:8px 10px;
   background:var(--surface-2);
   border-radius:var(--r);
   font-size:12px;line-height:1.45;
   color:var(--label-2);
   font-variant-numeric:tabular-nums;
-  max-height:220px;overflow:auto;
+  max-height:180px;overflow:auto;
+  text-align:start;
 }
 .wlog-h{color:var(--label);font-size:13px;font-weight:600;margin-bottom:6px}
 .wlog-l+.wlog-l{margin-top:3px;word-break:break-word}

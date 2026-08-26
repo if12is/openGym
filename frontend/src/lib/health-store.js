@@ -211,6 +211,25 @@ export async function healthPlugin() {
   return plugin
 }
 
+// One Health Connect call at a time. WatchCard's mount check, the resume
+// boot, the connection-check probe, and the pull button all talk to the
+// same Honor binder; two at once is how a working diagnose (7496 steps in
+// 65ms) sat next to a pull frozen on 0%.
+let healthChain = Promise.resolve()
+export function enqueueHealth(fn) {
+  const run = healthChain.then(fn, fn)
+  healthChain = run.then(() => {}, () => {})
+  return run
+}
+
+let pullBusy = false
+export const isPullingHealth = () => pullBusy
+
+function todayIso() {
+  const d = new Date()
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+}
+
 function withTimeout(p, ms, reason) {
   return new Promise((resolve, reject) => {
     const id = setTimeout(() => reject(Object.assign(new Error(reason), { code: reason })), ms)
@@ -309,12 +328,15 @@ export async function connectWatch(deviceLabel) {
 // month of not opening the app, so a stored `state: 'ok'` is a claim to re-check,
 // not a fact to trust.
 export async function refreshLinkState() {
+  if (pullBusy) return state.conn.state
   const p = await healthPlugin()
   if (!p) return state.conn.state
   let granted
   let provider
   try {
-    const res = await withTimeout(p.checkAuthorization({ read: READ_SCOPES }), 10000, 'timeout')
+    const res = await enqueueHealth(() =>
+      withTimeout(p.checkAuthorization({ read: READ_SCOPES }), 10000, 'timeout'),
+    )
     granted = res?.granted || []
     provider = res?.provider
   } catch (e) {
@@ -410,52 +432,36 @@ export const loadHealthSync = () => withTimeout(import('./health-sync.js'), 1000
 
 export async function pullWatchData(days = 7, onProgress) {
   const note = (frac, info) => { try { onProgress?.(frac, info) } catch (e) { /* UI */ } }
+  pullBusy = true
+  note(0.01, { step: 'checking' })
   const p = await healthPlugin()
-  if (!p) return { ok: false, reason: 'no-plugin' }
-  note(0, { step: 'checking' })
-  // Fresh grant check. refreshLinkState keeps the last 'ok' when the native
-  // call times out, which would then send us into a sync that never returns
-  // on Honor/Huawei (and in the web shell, where Health is unimplemented).
-  let granted
-  let history = false
-  try {
-    const res = await withTimeout(p.checkAuthorization({ read: READ_SCOPES }), 10000, 'timeout')
-    granted = res?.granted || []
-    history = !!res?.historyAccessAuthorized
-  } catch (e) {
-    return { ok: false, reason: rejectReason(e, 'timeout') }
+  if (!p) {
+    pullBusy = false
+    return { ok: false, reason: 'no-plugin' }
   }
-  if (!granted.includes('READ_HEART_RATE')) {
-    return { ok: false, reason: 'need-permission' }
-  }
-  note(0.03, { step: 'granted', count: granted.length })
-  updateConn(c => {
-    c.state = 'ok'
-    c.granted = granted
-    c.grantedAt = c.grantedAt || Date.now()
-    c.history = history || c.history
-    c.provider = c.provider || 'health-connect'
-    if (!c.deviceLabel) c.deviceLabel = 'Huawei Watch Fit 4'
-  })
 
-  // Canary. If this hangs, every later read will too — the log should say
-  // so before the day walk starts. Native now times the binder out; this
-  // is the JS backstop.
-  note(0.04, { step: 'probe', state: 'start' })
+  // Do not call checkAuthorization here. Settings already fires that on
+  // mount, and a second binder call is what froze the pull at 0% while
+  // diagnose — the same probe — returned 7,496 steps in 65ms. Probe is
+  // the grant check: not-authorized means we need permission, data means
+  // we are allowed, and the steps land in today's row before anything
+  // else can hang.
+  note(0.05, { step: 'probe', state: 'start' })
   let probe = null
   try {
     const now = Date.now()
-    if (typeof p.probe === 'function') {
-      probe = await withTimeout(
-        p.probe({ start: now - 86400000, end: now }),
-        12000, 'timeout',
+    if (typeof p.probe !== 'function') {
+      note(0.1, { step: 'probe', state: 'skip' })
+    } else {
+      probe = await enqueueHealth(() =>
+        withTimeout(p.probe({ start: now - 86400000, end: now }), 12000, 'timeout'),
       )
       const origins = Array.isArray(probe?.origins)
         ? probe.origins
         : (probe?.origins && typeof probe.origins.length === 'number'
           ? Array.from(probe.origins)
           : [])
-      note(0.08, {
+      note(0.15, {
         step: 'probe',
         state: 'ok',
         records: probe?.records,
@@ -463,28 +469,48 @@ export async function pullWatchData(days = 7, onProgress) {
         ms: probe?.ms,
         origins: origins.filter(Boolean),
       })
-    } else {
-      note(0.08, { step: 'probe', state: 'skip' })
+      const iso = todayIso()
+      updateHealth(h => {
+        h.conn.state = 'ok'
+        h.conn.grantedAt = h.conn.grantedAt || Date.now()
+        h.conn.provider = h.conn.provider || 'health-connect'
+        if (!h.conn.deviceLabel) h.conn.deviceLabel = 'Huawei Watch Fit 4'
+        if (probe?.steps != null || (probe?.records || 0) > 0) {
+          h.days[iso] = {
+            ...(h.days[iso] || {}),
+            steps: probe.steps ?? h.days[iso]?.steps,
+            syncedAt: Date.now(),
+            src: (origins.filter(Boolean)[0] || h.days[iso]?.src || null),
+          }
+        }
+      })
     }
   } catch (e) {
-    probe = { ok: false, reason: rejectReason(e, 'timeout') }
-    note(0.08, { step: 'probe', state: 'fail', reason: probe.reason })
+    const reason = rejectReason(e, 'timeout')
+    probe = { ok: false, reason }
+    note(0.15, { step: 'probe', state: 'fail', reason })
+    pullBusy = false
+    if (reason === 'denied') return { ok: false, reason: 'need-permission' }
+    return { ok: false, reason }
   }
 
   try {
     const m = await loadHealthSync()
-    // Seven days, each four reads, each capped at ~10s native. Past this
-    // the first day already aborted on a total timeout, or something is
-    // not coming back at all.
     const n = await withTimeout(
-      m.syncRecentDays(days, (frac, info) => note(0.08 + frac * 0.9, info)),
+      m.syncRecentDays(days, (frac, info) => note(0.15 + frac * 0.85, info)),
       180000, 'timeout',
     )
     if (n > 0) return { ok: true, days: n }
+    if (probe && (probe.steps != null || (probe.records || 0) > 0)) return { ok: true, days: 1 }
     if (probe && probe.reason === 'timeout') return { ok: false, reason: 'timeout' }
     return { ok: true, days: 0 }
   } catch (e) {
+    if (probe && (probe.steps != null || (probe.records || 0) > 0)) {
+      return { ok: true, days: 1 }
+    }
     return { ok: false, reason: rejectReason(e, 'error') }
+  } finally {
+    pullBusy = false
   }
 }
 
@@ -516,7 +542,7 @@ export async function diagnoseHealth() {
   try {
     // 40s: diagnose now includes a timed steps probe + aggregate probe, each
     // of which can take up to ~6s after the bind/grant checks.
-    return await withTimeout(p.diagnose(), 40000, 'timeout')
+    return await enqueueHealth(() => withTimeout(p.diagnose(), 40000, 'timeout'))
   } catch (e) {
     // Raw, not mapped. rejectReason() exists to pick a recovery path for the
     // user, and it turned "Health.diagnose() is not implemented" into

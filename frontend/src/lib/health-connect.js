@@ -15,7 +15,7 @@
 //   · `origins` filters to one writing app when the user has picked a trusted
 //     source, so the phone and the watch can't both be counted for the same steps
 
-import { healthPlugin, getConn } from './health-store.js'
+import { healthPlugin, getConn, enqueueHealth } from './health-store.js'
 
 // Watch data often lands a few minutes after the watch syncs, so a query that
 // returns nothing is usually "not yet", not "never". Callers distinguish the two
@@ -32,18 +32,8 @@ function withTimeout(p, ms, reason = 'timeout') {
   })
 }
 
-// Honor's Health Connect binder deadlocks when several readRecords run at
-// once. syncDay used to Promise.all four of them, and the first day never
-// came back — which is why the bar sat on 0%. One in flight at a time.
-let tail = Promise.resolve()
-function enqueue(fn) {
-  const run = tail.then(fn, fn)
-  tail = run.then(() => {}, () => {})
-  return run
-}
-
 async function call(method, args = {}) {
-  return enqueue(async () => {
+  return enqueueHealth(async () => {
     const p = await healthPlugin()
     if (!p || typeof p[method] !== 'function') return fail('no-plugin')
     try {

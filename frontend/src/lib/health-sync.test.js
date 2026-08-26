@@ -95,4 +95,8 @@ describe('logLine', () => {
       origins: ['com.healthsync'], ms: 220,
     })).toBe('Probe: 3 records, 8400 steps from com.healthsync (220 ms)')
   })
+
+  it('shows checking immediately, before any native call', () => {
+    expect(logLine({ step: 'checking' })).toBe('Checking permissions…')
+  })
 })

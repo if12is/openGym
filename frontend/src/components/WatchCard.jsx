@@ -241,12 +241,13 @@ function SetupSheet({ close, toast }) {
 
   const go = async () => {
     setBusy(true)
-    setPct(0)
-    setPullLog([])
+    setPct(1)
+    const startLine = logLine({ step: 'checking' })
+    setPullLog(startLine ? [startLine] : [])
     setProblem(null)
     try {
       const res = await pullWatchData(7, (p, info) => {
-        setPct(Math.round(p * 100))
+        setPct(Math.max(1, Math.round(p * 100)))
         const line = logLine(info)
         if (line) setPullLog(l => [...l.slice(-20), line])
       })
@@ -425,11 +426,12 @@ export default function WatchCard({ toast }) {
 
   const pull = async () => {
     setPulling(true)
-    setPullPct(0)
-    setPullLog([])
+    setPullPct(1)
+    const startLine = logLine({ step: 'checking' })
+    setPullLog(startLine ? [startLine] : [])
     try {
       const res = await pullWatchData(7, (p, info) => {
-        setPullPct(Math.round(p * 100))
+        setPullPct(Math.max(1, Math.round(p * 100)))
         const line = logLine(info)
         if (line) setPullLog(l => [...l.slice(-20), line])
       })
@@ -527,9 +529,9 @@ export default function WatchCard({ toast }) {
             <Button size="sm" variant="primary" icon="download" disabled={pulling} onClick={pull}>
               {pulling ? t('Pulling watch data… {0}%', pullPct) : t('Pull watch data')}
             </Button>
+            <PullLog pulling={pulling} pct={pullPct} lines={pullLog} />
           </div>
         </div>
-        <PullLog pulling={pulling} pct={pullPct} lines={pullLog} />
         <HealthConnectPermissionRow toast={toast} />
         <Row icon="watch" iconTint="var(--label-3)" title={t('Health Sync setup')}
           subtitle={t('Pair the watch, run Health Sync, then allow Gemak in Health Connect')}
