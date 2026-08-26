@@ -403,7 +403,12 @@ export async function openHealthConnectPermissions() {
  * Read what is already granted. Does not launch a permission picker — Honor
  * and Huawei hang on that sheet. Allow from Health Connect first.
  */
-export async function pullWatchData(days = 2) {
+// Bounded, because this is a lazy chunk — a fetch through the service worker,
+// not a function call. An unbounded await on one of these is exactly what left
+// the update card and the connection check spinning with nothing to show.
+export const loadHealthSync = () => withTimeout(import('./health-sync.js'), 10000, 'chunk-timeout')
+
+export async function pullWatchData(days = 2, onProgress) {
   const p = await healthPlugin()
   if (!p) return { ok: false, reason: 'no-plugin' }
   // Fresh grant check. refreshLinkState keeps the last 'ok' when the native
@@ -427,9 +432,18 @@ export async function pullWatchData(days = 2) {
     if (!c.deviceLabel) c.deviceLabel = 'Huawei Watch Fit 4'
   })
   try {
-    const m = await import('./health-sync.js')
-    const n = await m.syncRecentDays(days)
-    return { ok: true, days: n }
+    const m = await loadHealthSync()
+    // Each day is four reads capped at 12s each, so two days cannot honestly
+    // need more than this. Past it something is not coming back.
+    const n = await withTimeout(m.syncRecentDays(days, onProgress), 90000, 'timeout')
+    if (n > 0) return { ok: true, days: n }
+    // Zero days is ambiguous, and the two meanings need opposite advice: either
+    // Health Sync has not written anything yet, or every read failed. One cheap
+    // probe tells them apart, and it only runs when there is nothing to show.
+    const { aggregate } = await import('./health-connect.js')
+    const probe = await aggregate(Date.now() - 86400000, Date.now(), ['steps'])
+    if (!probe.ok) return { ok: false, reason: probe.reason || 'timeout' }
+    return { ok: true, days: 0 }
   } catch (e) {
     return { ok: false, reason: rejectReason(e, 'error') }
   }

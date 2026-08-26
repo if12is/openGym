@@ -872,6 +872,9 @@ export default {
   'Connection check': 'فحص الاتصال',
   'App bridge': 'جسر التطبيق',
   'Settings routes': 'طرق فتح الإعدادات',
+  'Pulling watch data… {0}%': 'بيسحب بيانات الساعة… {0}%',
+  'Health Connect didn’t answer. Open Health Sync, let it push once, then pull again.':
+    'Health Connect مردّش. افتح Health Sync وسيبه يبعت مرة، وبعدين اسحب تاني.',
   'Asks for permission here. If Android doesn’t show it, Health Connect opens instead.':
     'بيطلب الإذن من هنا. لو أندرويد ماعرضهوش، هيفتحلك Health Connect بدلها.',
   'Tap Allow access. Android shows its own permission screen — at minimum turn on heart rate. If it doesn’t appear, Health Connect opens so you can turn Gemak on there.':

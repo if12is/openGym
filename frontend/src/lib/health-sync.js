@@ -80,14 +80,19 @@ export async function syncDay(iso) {
 // Today and yesterday on every resume. Yesterday because Health Sync often
 // finishes writing a night's sleep well after midnight, so the row written at
 // 08:00 yesterday is usually incomplete.
-export async function syncRecentDays(days = 2) {
+// onProgress runs 0 → 1 across the days. A day is four reads capped at 12s
+// each, so even a healthy pull can take most of a minute on a phone that is
+// slow to answer — long enough that a button with no feedback reads as frozen.
+export async function syncRecentDays(days = 2, onProgress) {
   if (!linked()) return 0
   const out = []
   const base = new Date()
   for (let i = 0; i < days; i++) {
+    onProgress?.(i / days)
     const d = new Date(base); d.setDate(d.getDate() - i)
     out.push(await syncDay(isoOf(d)))
   }
+  onProgress?.(1)
   updateHealth(h => { h.conn.lastSyncAt = Date.now() })
   return out.filter(Boolean).length
 }

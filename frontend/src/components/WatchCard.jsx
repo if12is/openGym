@@ -12,7 +12,7 @@ import { fmtDate, isoOf } from '../lib/format.js'
 import {
   getConn, subscribeHealth, refreshLinkState, disconnectWatch,
   openHealthConnectPermissions, installHealthConnect, connectWatch,
-  updateConn, getHealth, diagnoseHealth, checkAvailability, pullWatchData,
+  updateConn, getHealth, diagnoseHealth, checkAvailability, pullWatchData, loadHealthSync,
 } from '../lib/health-store.js'
 import { bridgeReport } from '../lib/bridge-report.js'
 import { listOrigins } from '../lib/health-connect.js'
@@ -61,14 +61,14 @@ function DiagnoseSheet({ toast }) {
     [t('Full check answers'), b.diagnoseProbe || '—'],
   ] : []
 
-  const routeRow = data?.settingsRoutes?.length
-    ? [[t('Settings routes'), data.settingsRoutes.join(' · ')]]
-    : []
-
   // Prefer the store's readout, fall back to the one the bridge report took
   // directly off the plugin — so this section fills in even when the store
   // cannot produce a handle.
   const data = d && !d.error ? d : (b?.diagnose || null)
+
+  const routeRow = data?.settingsRoutes?.length
+    ? [[t('Settings routes'), data.settingsRoutes.join(' · ')]]
+    : []
   const huawei = data?.provider === 'huawei'
   const rows = data ? [
     [t('Phone'), `${data.device} · Android SDK ${data.sdkInt}`],
@@ -195,6 +195,7 @@ function HealthConnectPermissionRow({ toast }) {
 
 function SetupSheet({ close, toast }) {
   const [busy, setBusy] = useState(false)
+  const [pct, setPct] = useState(0)
   const [problem, setProblem] = useState(null)
   const [provider, setProvider] = useState('health-connect')
 
@@ -210,9 +211,10 @@ function SetupSheet({ close, toast }) {
 
   const go = async () => {
     setBusy(true)
+    setPct(0)
     setProblem(null)
     try {
-      const res = await pullWatchData(2)
+      const res = await pullWatchData(2, p => setPct(Math.round(p * 100)))
       if (res.ok) {
         close()
         toast(res.days ? t('Synced') : t('Allowed — nothing new yet. Health Sync may still be catching up.'))
@@ -339,7 +341,7 @@ function SetupSheet({ close, toast }) {
     </Button>
     <div style={{ height: 8 }} />
     <Button variant="primary" icon="download" disabled={busy} onClick={go}>
-      {busy ? t('Pulling watch data…') : t('Pull watch data')}
+      {busy ? t('Pulling watch data… {0}%', pct) : t('Pull watch data')}
     </Button>
     <div style={{ height: 8 }} />
     <Button size="sm" variant="plain" icon="info" onClick={() => openDiagnose(toast)}>
@@ -357,7 +359,7 @@ function SetupSheet({ close, toast }) {
 
 const syncNowAsync = async (days = 2) => {
   try {
-    const m = await import('../lib/health-sync.js')
+    const m = await loadHealthSync()
     return await m.syncRecentDays(days)
   } catch (e) { return 0 }
 }
@@ -373,6 +375,7 @@ export default function WatchCard({ toast }) {
   const [syncing, setSyncing] = useState(false)
   const [fill, setFill] = useState(null)
   const [pulling, setPulling] = useState(false)
+  const [pullPct, setPullPct] = useState(0)
   const huawei = conn.provider === 'huawei'
 
   useEffect(() => {
@@ -385,8 +388,9 @@ export default function WatchCard({ toast }) {
 
   const pull = async () => {
     setPulling(true)
+    setPullPct(0)
     try {
-      const res = await pullWatchData(2)
+      const res = await pullWatchData(2, p => setPullPct(Math.round(p * 100)))
       if (res.ok) {
         toast(res.days ? t('Synced') : t('Nothing new yet — Health Sync may still be catching up'))
         rememberOrigins()
@@ -394,8 +398,13 @@ export default function WatchCard({ toast }) {
       }
       if (res.reason === 'need-permission' || res.reason === 'denied') {
         toast(t('Allow Gemak from Health Connect first, then pull.'))
-      } else if (res.reason === 'no-bind' || res.reason === 'timeout' || res.reason === 'no-plugin') {
-        toast(t('Allow Gemak from Health Connect first, then pull.'))
+      } else if (res.reason === 'no-plugin') {
+        toast(t('This build can’t reach Health Connect. Update the app and try again.'))
+      } else if (res.reason === 'timeout' || res.reason === 'chunk-timeout' || res.reason === 'no-bind') {
+        // Not a permission problem. Every type can be granted and the reads
+        // still not answer — telling the user to go and allow it again sends
+        // them back to a screen that is already correct.
+        toast(t('Health Connect didn’t answer. Open Health Sync, let it push once, then pull again.'))
       } else {
         toast(t('Could not read earlier days'))
       }
@@ -421,7 +430,7 @@ export default function WatchCard({ toast }) {
     onConfirm: async () => {
       setFill(0)
       try {
-        const m = await import('../lib/health-sync.js')
+        const m = await loadHealthSync()
         const to = new Date()
         const from = new Date(); from.setFullYear(from.getFullYear() - 1)
         const res = await m.backfillDays(isoOf(from), isoOf(to), p => setFill(Math.round(p * 100)))
@@ -474,7 +483,7 @@ export default function WatchCard({ toast }) {
             <span className="wcard-t">{t('Add a watch')}</span>
             <span className="wcard-s">{t('See heart rate, sleep and calories next to the workout that earned them.')}</span>
             <Button size="sm" variant="primary" icon="download" disabled={pulling} onClick={pull}>
-              {pulling ? t('Pulling watch data…') : t('Pull watch data')}
+              {pulling ? t('Pulling watch data… {0}%', pullPct) : t('Pull watch data')}
             </Button>
           </div>
         </div>
@@ -499,7 +508,7 @@ export default function WatchCard({ toast }) {
             <span className="wcard-t">{t('Access expired')}</span>
             <span className="wcard-s">{t('Health Connect stopped sharing. Reconnect to pick up where you left off.')}</span>
             <Button size="sm" variant="primary" icon="download" disabled={pulling} onClick={pull}>
-              {pulling ? t('Pulling watch data…') : t('Pull watch data')}
+              {pulling ? t('Pulling watch data… {0}%', pullPct) : t('Pull watch data')}
             </Button>
           </div>
         </div>
