@@ -86,7 +86,7 @@ export async function bridgeReport() {
   // a handle, and a diagnostic routed through the thing it is diagnosing is how
   // this went several rounds without saying anything useful. If this answers
   // while the store reports an error, the fault is above the bridge.
-  const dg = await probe(() => H.diagnose(), 20000)
+  const dg = await probe(() => H.diagnose(), 40000)
   out.diagnoseProbe = dg.state === 'ok' ? 'answered' : dg.state === 'timeout' ? 'never answered' : dg.message
   if (dg.state === 'ok') out.diagnose = dg.value
   return out

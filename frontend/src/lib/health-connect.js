@@ -32,20 +32,32 @@ function withTimeout(p, ms, reason = 'timeout') {
   })
 }
 
+// Honor's Health Connect binder deadlocks when several readRecords run at
+// once. syncDay used to Promise.all four of them, and the first day never
+// came back — which is why the bar sat on 0%. One in flight at a time.
+let tail = Promise.resolve()
+function enqueue(fn) {
+  const run = tail.then(fn, fn)
+  tail = run.then(() => {}, () => {})
+  return run
+}
+
 async function call(method, args = {}) {
-  const p = await healthPlugin()
-  if (!p || typeof p[method] !== 'function') return fail('no-plugin')
-  try {
-    const res = await withTimeout(p[method](args), 12000, 'timeout')
-    return { ok: true, ...res }
-  } catch (e) {
-    const msg = String(e?.message || e?.code || e || '')
-    if (msg.includes('not-authorized')) return fail('denied')
-    if (msg.includes('no-bind')) return fail('no-bind')
-    if (msg.includes('timeout')) return fail('timeout')
-    if (msg.includes('UNIMPLEMENTED') || msg.includes('not implemented')) return fail('no-plugin')
-    return fail('error')
-  }
+  return enqueue(async () => {
+    const p = await healthPlugin()
+    if (!p || typeof p[method] !== 'function') return fail('no-plugin')
+    try {
+      const res = await withTimeout(p[method](args), 12000, 'timeout')
+      return { ok: true, ...res }
+    } catch (e) {
+      const msg = String(e?.message || e?.code || e || '')
+      if (msg.includes('not-authorized')) return fail('denied')
+      if (msg.includes('no-bind')) return fail('no-bind')
+      if (msg.includes('timeout')) return fail('timeout')
+      if (msg.includes('UNIMPLEMENTED') || msg.includes('not implemented')) return fail('no-plugin')
+      return fail('error')
+    }
+  })
 }
 
 // Applied to every read that supports it. Null means "no preference yet" — the
@@ -132,4 +144,18 @@ export async function listOrigins(start, end) {
   const r = await call('listOrigins', { start, end })
   if (!r.ok) return r
   return { ok: true, origins: (r.origins || []).filter(o => o && o.pkg) }
+}
+
+// One cheap steps read. The pull starts here so the on-screen log can say
+// whether the store answers at all, before walking days.
+export async function probeSteps(start, end) {
+  const r = await call('probe', { start, end })
+  if (!r.ok) return r
+  return {
+    ok: true,
+    records: r.records ?? null,
+    steps: r.steps ?? null,
+    ms: r.ms ?? null,
+    origins: r.origins || [],
+  }
 }

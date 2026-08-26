@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+Honor with every Health Connect type granted still sat on **0%** and pulled nothing.
+The first day's four reads ran in parallel against a binder that never returns, and
+progress only moved after that day finished — so a hang looked like a frozen bar.
+
+- Native `readRecords` / `aggregate` now have a hard 10s deadline (the same
+  `Future.get` pattern as the client bind). Honor skips the aggregate API and
+  sums records instead.
+- Reads run one at a time. A live log under the pull button names each call.
+- The first day timing out on every read stops the walk instead of grinding on.
+- Connection check includes a one-day steps probe and an aggregate probe.
+
 ## v1.5.1 — 2026-08-25
 
 Honor and Huawei often never show the in-app Health Connect picker, so linking hung on

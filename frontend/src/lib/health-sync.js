@@ -31,19 +31,46 @@ const linked = () => getConn().state === 'ok'
 // One day = one aggregate call plus sleep and resting pulse. Cheap enough to
 // re-run for today every time the app comes forward, which is what keeps the
 // home card from showing this morning's numbers all afternoon.
-export async function syncDay(iso) {
+async function readStep(kind, iso, fn, onStep) {
+  onStep?.({ step: 'read', kind, iso, state: 'start' })
+  const result = await fn()
+  onStep?.({
+    step: 'read',
+    kind,
+    iso,
+    state: result.ok ? 'ok' : 'fail',
+    reason: result.reason || null,
+    result,
+  })
+  return result
+}
+
+export async function syncDay(iso, onStep) {
   if (!linked()) return null
   const { start, end } = localDayRange(iso)
   const now = Date.now()
   const to = Math.min(end, now)
   if (to <= start) return null
 
-  const [agg, sleep, rhr, rec] = await Promise.all([
-    aggregate(start, to),
-    readSleep(start - 30 * 3600000, to),   // reaches back past midnight for last night
-    readRestingHeartRate(start, to),
-    readRecovery(start, to),
-  ])
+  // One after another. Four Health Connect queries in parallel are what
+  // froze Honor on 0%: the binder never returned, and progress only
+  // advanced after the whole day finished.
+  const agg = await readStep('steps', iso, () => aggregate(start, to), onStep)
+  const sleep = await readStep(
+    'sleep', iso,
+    () => readSleep(start - 30 * 3600000, to),
+    onStep,
+  )
+  const rhr = await readStep(
+    'rhr', iso,
+    () => readRestingHeartRate(start, to),
+    onStep,
+  )
+  const rec = await readStep(
+    'recovery', iso,
+    () => readRecovery(start, to),
+    onStep,
+  )
 
   const row = {}
   if (agg.ok) {
@@ -80,19 +107,45 @@ export async function syncDay(iso) {
 // Today and yesterday on every resume. Yesterday because Health Sync often
 // finishes writing a night's sleep well after midnight, so the row written at
 // 08:00 yesterday is usually incomplete.
-// onProgress runs 0 → 1 across the days. A day is four reads capped at 12s
-// each, so even a healthy pull can take most of a minute on a phone that is
-// slow to answer — long enough that a button with no feedback reads as frozen.
+//
+// onProgress(frac, info) fires before each read, not after each day. A day
+// used to be four silent queries, so a hang looked like 0% forever.
 export async function syncRecentDays(days = 2, onProgress) {
   if (!linked()) return 0
   const out = []
   const base = new Date()
+  const totalReads = Math.max(1, days * 4)
+  let done = 0
+
   for (let i = 0; i < days; i++) {
-    onProgress?.(i / days)
     const d = new Date(base); d.setDate(d.getDate() - i)
-    out.push(await syncDay(isoOf(d)))
+    const iso = isoOf(d)
+    let dayReads = 0
+    let dayTimeouts = 0
+    onProgress?.(done / totalReads, { step: 'day', iso, index: i, total: days })
+    const row = await syncDay(iso, info => {
+      if (info.state === 'start') {
+        onProgress?.(done / totalReads, info)
+        return
+      }
+      if (info.step === 'read') {
+        dayReads++
+        if (info.reason === 'timeout') dayTimeouts++
+        done++
+      }
+      onProgress?.(Math.min(done / totalReads, 0.99), info)
+    })
+    out.push(row)
+    // First day: every read timed out. Walking more days will not start
+    // answering. Stop and let the log say so, rather than sit on 0% for
+    // another minute.
+    if (i === 0 && dayReads > 0 && dayTimeouts === dayReads) {
+      onProgress?.(1, { step: 'stopped', reason: 'timeout', iso })
+      updateHealth(h => { h.conn.lastSyncAt = Date.now() })
+      return 0
+    }
   }
-  onProgress?.(1)
+  onProgress?.(1, { step: 'done' })
   updateHealth(h => { h.conn.lastSyncAt = Date.now() })
   return out.filter(Boolean).length
 }

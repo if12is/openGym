@@ -8,6 +8,11 @@ Without that file, Honor/Huawei phones use **Health Connect** (the Health Sync
 path). Settings has **Allow from Health Connect** for the grant — the in-app
 picker often never appears on those devices — and **Pull watch data** only reads.
 
+On Honor, Health Connect `aggregate()` often hangs even after every type is
+granted. The pull then times each query, reads one at a time, and sums step /
+calorie records when aggregate does not return. A live log under the button
+shows which call is running.
+
 Health Kit will not return real data until the app is registered in AppGallery
 Connect and the read scopes are approved. The APK builds without that file;
 sign-in then fails with `not-configured` until you drop in `agconnect-services.json`.

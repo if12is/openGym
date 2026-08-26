@@ -40,8 +40,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.time.Instant
 import java.util.concurrent.Callable
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 /**
  * Health bridge — read only.
@@ -81,6 +83,26 @@ class HealthPlugin : Plugin() {
             exec.submit(Callable { block() }).get(ms, TimeUnit.MILLISECONDS)
         } catch (e: Throwable) {
             null
+        } finally {
+            exec.shutdownNow()
+        }
+    }
+
+    // Same hard deadline, but the cause is preserved. runTimed swallows
+    // SecurityException into null, which would turn "not allowed" into a timeout
+    // on a read — the one thing the pull log then cannot explain.
+    private fun <T> runQuery(ms: Long, block: () -> T): T {
+        val exec = Executors.newSingleThreadExecutor()
+        try {
+            return exec.submit(Callable { block() }).get(ms, TimeUnit.MILLISECONDS)
+        } catch (e: TimeoutException) {
+            throw RuntimeException("timeout")
+        } catch (e: ExecutionException) {
+            val cause = e.cause
+            if (cause is SecurityException) throw cause
+            throw (cause ?: e)
+        } catch (e: InterruptedException) {
+            throw RuntimeException("timeout")
         } finally {
             exec.shutdownNow()
         }
@@ -172,11 +194,19 @@ class HealthPlugin : Plugin() {
     private fun run(call: PluginCall, block: suspend () -> JSObject) {
         scope.launch {
             try {
-                call.resolve(block())
+                // Future.get, not kotlinx withTimeout: readRecords/aggregate are
+                // binder calls, and a coroutine timeout cannot abort those. Honor
+                // hangs here with every type already granted — JS then sits on
+                // 0% because the first day's four reads never settle.
+                val result = runQuery(10_000) {
+                    runBlocking { block() }
+                }
+                call.resolve(result)
             } catch (e: SecurityException) {
                 call.reject("not-authorized")
             } catch (e: Throwable) {
-                call.reject(e.message ?: "health-error")
+                val msg = e.message ?: "health-error"
+                call.reject(if (msg.contains("timeout")) "timeout" else msg)
             }
         }
     }
@@ -764,28 +794,83 @@ class HealthPlugin : Plugin() {
 
         run(call) {
             val c = clientOrNull() ?: throw RuntimeException("no-bind")
-            val metrics = mutableSetOf<AggregateMetric<*>>()
-            if (wanted.contains("steps")) metrics.add(StepsRecord.COUNT_TOTAL)
-            if (wanted.contains("activeCalories")) metrics.add(ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL)
-            if (wanted.contains("totalCalories")) metrics.add(TotalCaloriesBurnedRecord.ENERGY_TOTAL)
-            if (metrics.isEmpty()) return@run JSObject()
-
-            // One aggregate call per window rather than one per metric: same
-            // cursor walk, a third of the permission checks.
-            val res = c.aggregate(
-                AggregateRequest(metrics = metrics, timeRangeFilter = filter, dataOriginFilter = origins)
-            )
             val ret = JSObject()
-            if (metrics.contains(StepsRecord.COUNT_TOTAL)) {
-                res[StepsRecord.COUNT_TOTAL]?.let { ret.put("steps", it) }
-            }
-            if (metrics.contains(ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL)) {
-                res[ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL]?.let { ret.put("activeCalories", it.inKilocalories) }
-            }
-            if (metrics.contains(TotalCaloriesBurnedRecord.ENERGY_TOTAL)) {
-                res[TotalCaloriesBurnedRecord.ENERGY_TOTAL]?.let { ret.put("totalCalories", it.inKilocalories) }
+
+            // Honor/Huawei: aggregate() is a second binder call that often never
+            // returns even when readRecords for the same type does. Skip it there
+            // and sum the records. Elsewhere try aggregate with its own deadline
+            // so a hang still falls through to the same sum.
+            val fromAgg = if (!HealthHuawei.isHuaweiFamily()) {
+                val metrics = mutableSetOf<AggregateMetric<*>>()
+                if (wanted.contains("steps")) metrics.add(StepsRecord.COUNT_TOTAL)
+                if (wanted.contains("activeCalories")) metrics.add(ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL)
+                if (wanted.contains("totalCalories")) metrics.add(TotalCaloriesBurnedRecord.ENERGY_TOTAL)
+                if (metrics.isEmpty()) return@run ret
+                val res = runTimed(4_000) {
+                    runBlocking {
+                        c.aggregate(
+                            AggregateRequest(metrics = metrics, timeRangeFilter = filter, dataOriginFilter = origins)
+                        )
+                    }
+                }
+                if (res == null) false
+                else {
+                    if (metrics.contains(StepsRecord.COUNT_TOTAL)) {
+                        res[StepsRecord.COUNT_TOTAL]?.let { ret.put("steps", it) }
+                    }
+                    if (metrics.contains(ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL)) {
+                        res[ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL]?.let {
+                            ret.put("activeCalories", it.inKilocalories)
+                        }
+                    }
+                    if (metrics.contains(TotalCaloriesBurnedRecord.ENERGY_TOTAL)) {
+                        res[TotalCaloriesBurnedRecord.ENERGY_TOTAL]?.let {
+                            ret.put("totalCalories", it.inKilocalories)
+                        }
+                    }
+                    true
+                }
+            } else false
+
+            if (!fromAgg) {
+                if (wanted.contains("steps")) {
+                    ret.put("steps", readAll<StepsRecord>(filter, origins).sumOf { it.count })
+                }
+                if (wanted.contains("activeCalories")) {
+                    ret.put("activeCalories", readAll<ActiveCaloriesBurnedRecord>(filter, origins).sumOf { it.energy.inKilocalories })
+                }
+                if (wanted.contains("totalCalories")) {
+                    ret.put("totalCalories", readAll<TotalCaloriesBurnedRecord>(filter, origins).sumOf { it.energy.inKilocalories })
+                }
             }
             ret
+        }
+    }
+
+    /**
+     * A one-day steps read with the same timeout as every other query.
+     * The pull starts here so the log can say "the store answers" or
+     * "the store is hanging" before walking days.
+     */
+    @PluginMethod
+    fun probe(call: PluginCall) {
+        if (huaweiRead(call) { HealthHuawei.aggregate(context, call) }) return
+        val now = System.currentTimeMillis()
+        val start = call.getLong("start") ?: (now - 86_400_000L)
+        val end = call.getLong("end") ?: now
+        if (end <= start) { call.reject("bad-range"); return }
+        val filter = TimeRangeFilter.between(Instant.ofEpochMilli(start), Instant.ofEpochMilli(end))
+        val t0 = System.currentTimeMillis()
+        run(call) {
+            val recs = readAll<StepsRecord>(filter, emptySet())
+            val origins = JSArray()
+            recs.map { it.metadata.dataOrigin.packageName }.filter { it.isNotBlank() }.distinct()
+                .forEach { origins.put(it) }
+            JSObject()
+                .put("records", recs.size)
+                .put("steps", recs.sumOf { it.count })
+                .put("ms", System.currentTimeMillis() - t0)
+                .put("origins", origins)
         }
     }
 
@@ -887,6 +972,62 @@ class HealthPlugin : Plugin() {
                     .requestedPermissions?.count { it.startsWith("android.permission.health.") } ?: 0
             }.getOrDefault(-1)
             out.put("declaredHealthPermissions", declared)
+
+            // A one-day steps read and a one-metric aggregate, each timed out on
+            // its own. Permissions can all be granted while these still hang —
+            // which is the 0% pull — and the two answers tell them apart:
+            // readRecords working with aggregate stuck is the Honor case the
+            // daily pull now sums around.
+            if (bound == true && held != null && held.isNotEmpty()) {
+                val probeFilter = TimeRangeFilter.between(
+                    Instant.now().minusSeconds(86_400), Instant.now()
+                )
+                val probeT0 = System.currentTimeMillis()
+                val probeRecs = runTimed(6_000) {
+                    runBlocking {
+                        val c = hcClient ?: HealthConnectClient.getOrCreate(context).also { hcClient = it }
+                        c.readRecords(
+                            ReadRecordsRequest<StepsRecord>(
+                                timeRangeFilter = probeFilter,
+                                dataOriginFilter = emptySet(),
+                                ascendingOrder = true,
+                                pageSize = 100,
+                                pageToken = null
+                            )
+                        ).records
+                    }
+                }
+                out.put("probeMs", System.currentTimeMillis() - probeT0)
+                if (probeRecs == null) {
+                    out.put("probeOk", false)
+                    out.put("probeReason", "timeout")
+                } else {
+                    out.put("probeOk", true)
+                    out.put("probeRecords", probeRecs.size)
+                    out.put("probeSteps", probeRecs.sumOf { it.count })
+                    val pkgs = JSArray()
+                    probeRecs.map { it.metadata.dataOrigin.packageName }
+                        .filter { it.isNotBlank() }.distinct()
+                        .forEach { pkgs.put(it) }
+                    out.put("probeOrigins", pkgs)
+                }
+
+                val aggT0 = System.currentTimeMillis()
+                val aggSteps = runTimed(5_000) {
+                    runBlocking {
+                        val c = hcClient ?: return@runBlocking null
+                        c.aggregate(
+                            AggregateRequest(
+                                metrics = setOf(StepsRecord.COUNT_TOTAL),
+                                timeRangeFilter = probeFilter,
+                                dataOriginFilter = emptySet()
+                            )
+                        )[StepsRecord.COUNT_TOTAL]
+                    }
+                }
+                out.put("probeAggregateMs", System.currentTimeMillis() - aggT0)
+                out.put("probeAggregate", if (aggSteps == null) "timeout" else aggSteps.toString())
+            }
 
             call.resolve(out)
         }
