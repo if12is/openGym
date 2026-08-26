@@ -408,41 +408,80 @@ export async function openHealthConnectPermissions() {
 // the update card and the connection check spinning with nothing to show.
 export const loadHealthSync = () => withTimeout(import('./health-sync.js'), 10000, 'chunk-timeout')
 
-export async function pullWatchData(days = 2, onProgress) {
+export async function pullWatchData(days = 7, onProgress) {
+  const note = (frac, info) => { try { onProgress?.(frac, info) } catch (e) { /* UI */ } }
   const p = await healthPlugin()
   if (!p) return { ok: false, reason: 'no-plugin' }
+  note(0, { step: 'checking' })
   // Fresh grant check. refreshLinkState keeps the last 'ok' when the native
   // call times out, which would then send us into a sync that never returns
   // on Honor/Huawei (and in the web shell, where Health is unimplemented).
   let granted
+  let history = false
   try {
     const res = await withTimeout(p.checkAuthorization({ read: READ_SCOPES }), 10000, 'timeout')
     granted = res?.granted || []
+    history = !!res?.historyAccessAuthorized
   } catch (e) {
     return { ok: false, reason: rejectReason(e, 'timeout') }
   }
   if (!granted.includes('READ_HEART_RATE')) {
     return { ok: false, reason: 'need-permission' }
   }
+  note(0.03, { step: 'granted', count: granted.length })
   updateConn(c => {
     c.state = 'ok'
     c.granted = granted
     c.grantedAt = c.grantedAt || Date.now()
+    c.history = history || c.history
     c.provider = c.provider || 'health-connect'
     if (!c.deviceLabel) c.deviceLabel = 'Huawei Watch Fit 4'
   })
+
+  // Canary. If this hangs, every later read will too — the log should say
+  // so before the day walk starts. Native now times the binder out; this
+  // is the JS backstop.
+  note(0.04, { step: 'probe', state: 'start' })
+  let probe = null
+  try {
+    const now = Date.now()
+    if (typeof p.probe === 'function') {
+      probe = await withTimeout(
+        p.probe({ start: now - 86400000, end: now }),
+        12000, 'timeout',
+      )
+      const origins = Array.isArray(probe?.origins)
+        ? probe.origins
+        : (probe?.origins && typeof probe.origins.length === 'number'
+          ? Array.from(probe.origins)
+          : [])
+      note(0.08, {
+        step: 'probe',
+        state: 'ok',
+        records: probe?.records,
+        steps: probe?.steps,
+        ms: probe?.ms,
+        origins: origins.filter(Boolean),
+      })
+    } else {
+      note(0.08, { step: 'probe', state: 'skip' })
+    }
+  } catch (e) {
+    probe = { ok: false, reason: rejectReason(e, 'timeout') }
+    note(0.08, { step: 'probe', state: 'fail', reason: probe.reason })
+  }
+
   try {
     const m = await loadHealthSync()
-    // Each day is four reads capped at 12s each, so two days cannot honestly
-    // need more than this. Past it something is not coming back.
-    const n = await withTimeout(m.syncRecentDays(days, onProgress), 90000, 'timeout')
+    // Seven days, each four reads, each capped at ~10s native. Past this
+    // the first day already aborted on a total timeout, or something is
+    // not coming back at all.
+    const n = await withTimeout(
+      m.syncRecentDays(days, (frac, info) => note(0.08 + frac * 0.9, info)),
+      180000, 'timeout',
+    )
     if (n > 0) return { ok: true, days: n }
-    // Zero days is ambiguous, and the two meanings need opposite advice: either
-    // Health Sync has not written anything yet, or every read failed. One cheap
-    // probe tells them apart, and it only runs when there is nothing to show.
-    const { aggregate } = await import('./health-connect.js')
-    const probe = await aggregate(Date.now() - 86400000, Date.now(), ['steps'])
-    if (!probe.ok) return { ok: false, reason: probe.reason || 'timeout' }
+    if (probe && probe.reason === 'timeout') return { ok: false, reason: 'timeout' }
     return { ok: true, days: 0 }
   } catch (e) {
     return { ok: false, reason: rejectReason(e, 'error') }
@@ -475,9 +514,9 @@ export async function diagnoseHealth() {
   // rejected as unimplemented" need completely different fixes.
   if (!p) return { error: `handle is null (mobile=${MOBILE}, platform=${Capacitor.getPlatform()})` }
   try {
-    // 20s: every step inside diagnose() is separately timed out on the native
-    // side, so past this the call never reached the method body at all.
-    return await withTimeout(p.diagnose(), 20000, 'timeout')
+    // 40s: diagnose now includes a timed steps probe + aggregate probe, each
+    // of which can take up to ~6s after the bind/grant checks.
+    return await withTimeout(p.diagnose(), 40000, 'timeout')
   } catch (e) {
     // Raw, not mapped. rejectReason() exists to pick a recovery path for the
     // user, and it turned "Health.diagnose() is not implemented" into

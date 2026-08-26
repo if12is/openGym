@@ -5,7 +5,7 @@
 //     Gemak on there (the in-app picker never appears on those phones)
 //   · Pull watch data — only reads. No permission sheet.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useUI } from '../store/useUI.js'
 import { t } from '../lib/i18n.js'
 import { fmtDate, isoOf } from '../lib/format.js'
@@ -16,6 +16,7 @@ import {
 } from '../lib/health-store.js'
 import { bridgeReport } from '../lib/bridge-report.js'
 import { listOrigins } from '../lib/health-connect.js'
+import { logLine } from '../lib/health-pull-log.js'
 import { confirmSheet } from '../sheets.jsx'
 import { Section, Row, Button } from './ui.jsx'
 import WatchDevice from './WatchDevice.jsx'
@@ -88,6 +89,17 @@ function DiagnoseSheet({ toast }) {
     [t('Data connection'), data.clientBinds ? t('Works') : t('Timed out')],
     [t('Allowed right now'), data.grantedCount < 0 ? t('Could not read') : String(data.grantedCount)],
     [t('Allowed types'), (data.granted || []).join(', ') || '—'],
+    data.probeOk === false
+      ? [t('Steps probe'), `${data.probeReason || 'failed'} (${data.probeMs} ms)`]
+      : data.probeOk
+        ? [t('Steps probe'), `${data.probeRecords} ${t('records')} · ${data.probeSteps} ${t('steps')} · ${data.probeMs} ms`]
+        : null,
+    data.probeOrigins
+      ? [t('Steps written by'), (Array.isArray(data.probeOrigins) ? data.probeOrigins : []).join(', ') || '—']
+      : null,
+    data.probeAggregate != null
+      ? [t('Steps aggregate'), `${data.probeAggregate} (${data.probeAggregateMs} ms)`]
+      : null,
     ...routeRow,
   ].filter(Boolean) : []
 
@@ -147,6 +159,23 @@ function DiagnoseSheet({ toast }) {
 
 const openDiagnose = toast => useUI.getState().openSheet(() => <DiagnoseSheet toast={toast} />)
 
+function PullLog({ pulling, pct, lines }) {
+  const box = useRef(null)
+  useEffect(() => {
+    const el = box.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [lines])
+  if (!lines.length) return null
+  return (
+    <div className="wlog" ref={box}>
+      <div className="wlog-h">{pulling ? t('Pulling watch data… {0}%', pct) : t('Last pull')}</div>
+      {lines.map((line, i) => (
+        <div key={i} className="wlog-l">{line}</div>
+      ))}
+    </div>
+  )
+}
+
 const openHC = async toast => {
   if (!(await openHealthConnectPermissions())) {
     toast(t('Couldn’t open Health Connect. Open Android Settings → Security & privacy → Health Connect.'))
@@ -188,7 +217,7 @@ function HealthConnectPermissionRow({ toast }) {
       title={t('Allow access')}
       subtitle={t('Asks for permission here. If Android doesn’t show it, Health Connect opens instead.')}
       accessory="chevron"
-      onClick={() => grantAccess(toast, () => pullWatchData(2))}
+      onClick={() => grantAccess(toast, () => pullWatchData(7))}
     />
   )
 }
@@ -196,6 +225,7 @@ function HealthConnectPermissionRow({ toast }) {
 function SetupSheet({ close, toast }) {
   const [busy, setBusy] = useState(false)
   const [pct, setPct] = useState(0)
+  const [pullLog, setPullLog] = useState([])
   const [problem, setProblem] = useState(null)
   const [provider, setProvider] = useState('health-connect')
 
@@ -212,9 +242,14 @@ function SetupSheet({ close, toast }) {
   const go = async () => {
     setBusy(true)
     setPct(0)
+    setPullLog([])
     setProblem(null)
     try {
-      const res = await pullWatchData(2, p => setPct(Math.round(p * 100)))
+      const res = await pullWatchData(7, (p, info) => {
+        setPct(Math.round(p * 100))
+        const line = logLine(info)
+        if (line) setPullLog(l => [...l.slice(-20), line])
+      })
       if (res.ok) {
         close()
         toast(res.days ? t('Synced') : t('Allowed — nothing new yet. Health Sync may still be catching up.'))
@@ -343,6 +378,7 @@ function SetupSheet({ close, toast }) {
     <Button variant="primary" icon="download" disabled={busy} onClick={go}>
       {busy ? t('Pulling watch data… {0}%', pct) : t('Pull watch data')}
     </Button>
+    <PullLog pulling={busy} pct={pct} lines={pullLog} />
     <div style={{ height: 8 }} />
     <Button size="sm" variant="plain" icon="info" onClick={() => openDiagnose(toast)}>
       {t('Connection check')}
@@ -376,6 +412,7 @@ export default function WatchCard({ toast }) {
   const [fill, setFill] = useState(null)
   const [pulling, setPulling] = useState(false)
   const [pullPct, setPullPct] = useState(0)
+  const [pullLog, setPullLog] = useState([])
   const huawei = conn.provider === 'huawei'
 
   useEffect(() => {
@@ -389,8 +426,13 @@ export default function WatchCard({ toast }) {
   const pull = async () => {
     setPulling(true)
     setPullPct(0)
+    setPullLog([])
     try {
-      const res = await pullWatchData(2, p => setPullPct(Math.round(p * 100)))
+      const res = await pullWatchData(7, (p, info) => {
+        setPullPct(Math.round(p * 100))
+        const line = logLine(info)
+        if (line) setPullLog(l => [...l.slice(-20), line])
+      })
       if (res.ok) {
         toast(res.days ? t('Synced') : t('Nothing new yet — Health Sync may still be catching up'))
         rememberOrigins()
@@ -404,7 +446,7 @@ export default function WatchCard({ toast }) {
         // Not a permission problem. Every type can be granted and the reads
         // still not answer — telling the user to go and allow it again sends
         // them back to a screen that is already correct.
-        toast(t('Health Connect didn’t answer. Open Health Sync, let it push once, then pull again.'))
+        toast(t('Health Connect didn’t answer. The log below shows which read stopped.'))
       } else {
         toast(t('Could not read earlier days'))
       }
@@ -487,6 +529,7 @@ export default function WatchCard({ toast }) {
             </Button>
           </div>
         </div>
+        <PullLog pulling={pulling} pct={pullPct} lines={pullLog} />
         <HealthConnectPermissionRow toast={toast} />
         <Row icon="watch" iconTint="var(--label-3)" title={t('Health Sync setup')}
           subtitle={t('Pair the watch, run Health Sync, then allow Gemak in Health Connect')}
@@ -512,6 +555,7 @@ export default function WatchCard({ toast }) {
             </Button>
           </div>
         </div>
+        <PullLog pulling={pulling} pct={pullPct} lines={pullLog} />
         <HealthConnectPermissionRow toast={toast} />
         <Row icon="trash" iconTint="var(--red)" title={t('Unlink watch')} danger onClick={unlink} />
       </Section>
@@ -537,6 +581,7 @@ export default function WatchCard({ toast }) {
           </span>
         </div>
       </div>
+      <PullLog pulling={pulling} pct={pullPct} lines={pullLog} />
 
       <Row icon="footsteps" iconTint="var(--teal)" title={t('Today')}
         subtitle={today.steps != null
@@ -557,6 +602,12 @@ export default function WatchCard({ toast }) {
           subtitle={conn.history ? null : t('Health Connect caps older data unless you allow history.')}
           accessory="chevron" onClick={() => openHC(toast)} />
       )}
+
+      <Row icon="download" iconTint="var(--blue)"
+        title={pulling ? t('Pulling watch data… {0}%', pullPct) : t('Pull watch data')}
+        subtitle={t('Reads the last 7 days from what Health Sync already saved')}
+        accessory={pulling ? 'none' : 'chevron'}
+        onClick={pulling ? undefined : pull} />
 
       <Row icon="download" iconTint="var(--indigo)" title={t('Fill in earlier days')}
         subtitle={fill == null

@@ -1075,6 +1075,21 @@ html[dir="rtl"] .item.in-ss{box-shadow:inset -3px 0 0 var(--acc)}
 .wnote .icn{color:var(--orange);font-size:17px;margin-top:2px;flex:none}
 .wnote .btn{margin-top:6px;padding-inline:0}
 
+/* Live pull readout. The percentage alone sat on 0% while four Health Connect
+   queries hung, with no way to tell which. Each line is one native call. */
+.wlog{
+  margin:0 var(--pad) 12px;
+  padding:10px 12px;
+  background:var(--surface-2);
+  border-radius:var(--r);
+  font-size:12px;line-height:1.45;
+  color:var(--label-2);
+  font-variant-numeric:tabular-nums;
+  max-height:220px;overflow:auto;
+}
+.wlog-h{color:var(--label);font-size:13px;font-weight:600;margin-bottom:6px}
+.wlog-l+.wlog-l{margin-top:3px;word-break:break-word}
+
 /* Where the session's minutes actually went. A stacked bar, not five numbers:
    two sessions with the same average heart rate can look completely different
    here, and that difference is the whole point of showing zones at all. */
