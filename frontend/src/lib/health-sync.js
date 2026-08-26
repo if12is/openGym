@@ -13,7 +13,7 @@
 // it is recorded as `pending` and retried on the next resume.
 
 import {
-  getHealth, getConn, getSession, updateHealth, pruneHealth,
+  getHealth, getConn, getSession, getDay, updateHealth, pruneHealth,
   loadHealthFromDisk, isPullingHealth,
 } from './health-store.js'
 import { aggregate, readHeartRate, readSleep, readRestingHeartRate, readExerciseSessions, readRecovery } from './health-connect.js'
@@ -25,6 +25,16 @@ import { computeBaselines, trainingLoad } from './health-insights.js'
 import { isoOf, todayISO } from './format.js'
 
 const linked = () => getConn().state === 'ok'
+
+// After the first calorie or recovery timeout, later days skip that metric.
+// Walking 30 days that each wait 12s on a hung calorie read is how 15%
+// looked frozen after the probe had already returned today's steps.
+let skipKcal = false
+let skipRecovery = false
+export function resetPullSkips() {
+  skipKcal = false
+  skipRecovery = false
+}
 
 /* ============================ daily rows ============================ */
 
@@ -55,7 +65,53 @@ export async function syncDay(iso, onStep) {
   // One after another. Four Health Connect queries in parallel are what
   // froze Honor on 0%: the binder never returned, and progress only
   // advanced after the whole day finished.
-  const agg = await readStep('steps', iso, () => aggregate(start, to), onStep)
+  //
+  // Today's steps often already landed from the probe. Re-reading them
+  // through aggregate() (steps+calories together) is what froze 15%:
+  // calories hang on Honor, and the log still said "reading steps".
+  const have = getDay(iso) || {}
+  let agg
+  if (have.steps != null) {
+    agg = await readStep('steps', iso, async () => ({
+      ok: true,
+      steps: have.steps,
+      activeCalories: have.kcalActive ?? null,
+      totalCalories: have.kcalTotal ?? null,
+    }), onStep)
+    if (!skipKcal && have.kcalActive == null && have.kcalTotal == null) {
+      const kcal = await readStep(
+        'kcal', iso,
+        () => aggregate(start, to, ['activeCalories', 'totalCalories']),
+        onStep,
+      )
+      if (kcal.reason === 'timeout') skipKcal = true
+      if (kcal.ok) {
+        agg = {
+          ...agg,
+          activeCalories: kcal.activeCalories,
+          totalCalories: kcal.totalCalories,
+        }
+      }
+    }
+  } else {
+    agg = await readStep('steps', iso, () => aggregate(start, to, ['steps']), onStep)
+    if (!skipKcal) {
+      const kcal = await readStep(
+        'kcal', iso,
+        () => aggregate(start, to, ['activeCalories', 'totalCalories']),
+        onStep,
+      )
+      if (kcal.reason === 'timeout') skipKcal = true
+      if (kcal.ok) {
+        agg = {
+          ok: agg.ok || kcal.ok,
+          steps: agg.steps,
+          activeCalories: kcal.activeCalories,
+          totalCalories: kcal.totalCalories,
+        }
+      }
+    }
+  }
   const sleep = await readStep(
     'sleep', iso,
     () => readSleep(start - 30 * 3600000, to),
@@ -66,11 +122,15 @@ export async function syncDay(iso, onStep) {
     () => readRestingHeartRate(start, to),
     onStep,
   )
-  const rec = await readStep(
-    'recovery', iso,
-    () => readRecovery(start, to),
-    onStep,
-  )
+  let rec = { ok: false }
+  if (!skipRecovery) {
+    rec = await readStep(
+      'recovery', iso,
+      () => readRecovery(start, to),
+      onStep,
+    )
+    if (rec.reason === 'timeout') skipRecovery = true
+  }
 
   const row = {}
   if (agg.ok) {
@@ -112,10 +172,12 @@ export async function syncDay(iso, onStep) {
 // used to be four silent queries, so a hang looked like 0% forever.
 export async function syncRecentDays(days = 2, onProgress) {
   if (!linked()) return 0
+  resetPullSkips()
   const out = []
   const base = new Date()
   const totalReads = Math.max(1, days * 4)
   let done = 0
+  let empty = 0
 
   for (let i = 0; i < days; i++) {
     const d = new Date(base); d.setDate(d.getDate() - i)
@@ -143,6 +205,15 @@ export async function syncRecentDays(days = 2, onProgress) {
       onProgress?.(1, { step: 'stopped', reason: 'timeout', iso })
       updateHealth(h => { h.conn.lastSyncAt = Date.now() })
       return 0
+    }
+    // Without READ_HEALTH_DATA_HISTORY, days older than ~30 error or come
+    // back empty. Six empty days in a row is the end of what this phone
+    // will give, not a reason to grind through the rest of the year.
+    empty = row ? 0 : empty + 1
+    if (empty >= 6) {
+      onProgress?.(1, { step: 'stopped', reason: 'empty', iso })
+      updateHealth(h => { h.conn.lastSyncAt = Date.now() })
+      return out.filter(Boolean).length
     }
   }
   onProgress?.(1, { step: 'done' })

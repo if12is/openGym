@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.5.5 — 2026-08-26
+
+Pull got past permissions and froze at **15% / Reading steps for today**. The
+probe had already returned 13,331 steps in 98ms from Health Sync, Honor Health
+and the phone. Re-reading that day through `aggregate()` asked for calories on
+the same binder call; calories never returned, so the log stayed on steps.
+
+Health Connect's docs say `aggregate()` is how you avoid double-counting
+overlapping writers. Honor's binder never comes back from that call, so this
+build sums records instead and **prefers Health Sync** (`nl.appyhapps.healthsync`)
+— the watch bridge — over Honor Health and the phone's own counter.
+
+- Each metric has its own deadline. Steps can succeed while calories time out.
+- Today's probe steps are not read a second time.
+- Pull walks ~30 days (or a year if **Access past data** is on) and stops where
+  the store runs out. That extra permission is Health Connect → App access →
+  Additional access.
+
 ## v1.5.4 — 2026-08-26
 
 Pull sat on **1% / Checking permissions…** even with every Health Connect type

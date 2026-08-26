@@ -3,6 +3,7 @@
 
 import { t } from './i18n.js'
 import { isoOf } from './format.js'
+import { originLabel } from './health-origins.js'
 
 function dayLabel(iso) {
   if (!iso) return ''
@@ -16,6 +17,7 @@ function dayLabel(iso) {
 function kindLabel(kind) {
   return ({
     steps: t('step count'),
+    kcal: t('calories'),
     sleep: t('sleep data'),
     rhr: t('resting heart rate'),
     recovery: t('recovery readings'),
@@ -32,7 +34,9 @@ export function logLine(info) {
     return t('Steps probe failed: {0}', info.reason || 'error')
   }
   if (info.step === 'probe' && info.state === 'ok') {
-    const who = (info.origins || []).filter(Boolean).join(', ')
+    const who = info.origin
+      ? originLabel(info.origin)
+      : (info.origins || []).filter(Boolean).join(', ')
     const steps = info.steps != null ? Math.round(info.steps) : '—'
     const recs = info.records != null ? info.records : '—'
     const ms = info.ms != null ? info.ms : '—'
@@ -56,6 +60,12 @@ export function logLine(info) {
         ? t('Steps {0}: {1}', dayLabel(info.iso), Math.round(r.steps))
         : t('Steps {0}: none recorded', dayLabel(info.iso))
     }
+    if (info.kind === 'kcal') {
+      const n = r.activeCalories ?? r.totalCalories
+      return n != null
+        ? t('Calories {0}: {1}', dayLabel(info.iso), Math.round(n))
+        : t('Calories {0}: none recorded', dayLabel(info.iso))
+    }
     if (info.kind === 'sleep') {
       const n = (r.sessions || []).length
       return n
@@ -72,6 +82,9 @@ export function logLine(info) {
       return t('Recovery {0}: SpO₂ {1}, HRV {2}',
         dayLabel(info.iso), (r.spo2 || []).length, (r.hrv || []).length)
     }
+  }
+  if (info.step === 'stopped' && info.reason === 'empty') {
+    return t('Stopped: no more days in Health Connect')
   }
   if (info.step === 'stopped') return t('Stopped: Health Connect is not answering reads')
   if (info.step === 'done') return t('Finished reading')

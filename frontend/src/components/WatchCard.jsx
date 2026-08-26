@@ -218,7 +218,7 @@ function HealthConnectPermissionRow({ toast }) {
       title={t('Allow access')}
       subtitle={t('Asks for permission here. If Android doesn’t show it, Health Connect opens instead.')}
       accessory="chevron"
-      onClick={() => grantAccess(toast, () => pullWatchData(7))}
+      onClick={() => grantAccess(toast, () => pullWatchData())}
     />
   )
 }
@@ -247,7 +247,7 @@ function SetupSheet({ close, toast }) {
     setPullLog(startLine ? [startLine] : [])
     setProblem(null)
     try {
-      const res = await pullWatchData(7, (p, info) => {
+      const res = await pullWatchData(undefined, (p, info) => {
         setPct(Math.max(1, Math.round(p * 100)))
         const line = logLine(info)
         if (line) setPullLog(l => [...l.slice(-20), line])
@@ -426,7 +426,7 @@ export default function WatchCard({ toast }) {
     const startLine = logLine({ step: 'probe', state: 'start' })
     setPullLog(startLine ? [startLine] : [])
     try {
-      const res = await pullWatchData(7, (p, info) => {
+      const res = await pullWatchData(undefined, (p, info) => {
         setPullPct(Math.max(1, Math.round(p * 100)))
         const line = logLine(info)
         if (line) setPullLog(l => [...l.slice(-20), line])
@@ -597,13 +597,13 @@ export default function WatchCard({ toast }) {
       {!huawei && (
         <Row icon="history" iconTint={conn.history ? 'var(--green)' : 'var(--label-3)'}
           title={conn.history ? t('Full history allowed') : t('Last 30 days only')}
-          subtitle={conn.history ? null : t('Health Connect caps older data unless you allow history.')}
+          subtitle={conn.history ? null : t('Health Connect → App access → Additional access → Access past data. Without that, only about 30 days come through.')}
           accessory="chevron" onClick={() => openHC(toast)} />
       )}
 
       <Row icon="download" iconTint="var(--blue)"
         title={pulling ? t('Pulling watch data… {0}%', pullPct) : t('Pull watch data')}
-        subtitle={t('Reads the last 7 days from what Health Sync already saved')}
+        subtitle={t('Reads everything Health Sync already saved — not just a week')}
         accessory={pulling ? 'none' : 'chevron'}
         onClick={pulling ? undefined : pull} />
 

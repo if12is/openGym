@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { updateConn } from './health-store.js'
+import { updateConn, updateHealth } from './health-store.js'
 import { isoOf } from './format.js'
 import { logLine } from './health-pull-log.js'
 
@@ -33,13 +33,17 @@ vi.mock('./health-connect.js', () => ({
   readExerciseSessions: async () => ({ ok: true, sessions: [] }),
 }))
 
-const { syncDay, syncRecentDays, bootHealth } = await import('./health-sync.js')
+const { syncDay, syncRecentDays, bootHealth, resetPullSkips } = await import('./health-sync.js')
 
 beforeEach(() => {
   order.length = 0
   hold.agg = null
   mode = 'ok'
-  updateConn(c => { c.state = 'ok' })
+  resetPullSkips()
+  updateHealth(h => {
+    h.days = {}
+    h.conn.state = 'ok'
+  })
 })
 
 describe('syncDay', () => {
@@ -52,7 +56,15 @@ describe('syncDay', () => {
     expect(order).toEqual(['agg'])
     release()
     await pending
-    expect(order).toEqual(['agg', 'sleep', 'rhr', 'rec'])
+    expect(order).toEqual(['agg', 'agg', 'sleep', 'rhr', 'rec'])
+  })
+
+  it('does not re-query steps when today already has them from the probe', async () => {
+    const iso = isoOf(new Date())
+    updateHealth(h => { h.days[iso] = { steps: 13331 } })
+    await syncDay(iso)
+    // Calories still run once; steps are not asked again.
+    expect(order.filter(x => x === 'agg')).toHaveLength(1)
   })
 })
 
@@ -77,7 +89,7 @@ describe('syncRecentDays', () => {
     const n = await syncRecentDays(3, (_frac, info) => seen.push(info))
     expect(n).toBe(0)
     expect(seen.some(s => s?.step === 'stopped')).toBe(true)
-    expect(order.filter(x => x === 'agg')).toHaveLength(1)
+    expect(order.filter(x => x === 'agg')).toHaveLength(2)
     expect(order.filter(x => x === 'sleep')).toHaveLength(1)
   })
 })
@@ -94,6 +106,15 @@ describe('logLine', () => {
       step: 'probe', state: 'ok', records: 3, steps: 8400,
       origins: ['com.healthsync'], ms: 220,
     })).toBe('Probe: 3 records, 8400 steps from com.healthsync (220 ms)')
+  })
+
+  it('names Health Sync when that is the chosen origin', () => {
+    expect(logLine({
+      step: 'probe', state: 'ok', records: 80, steps: 7000,
+      origin: 'nl.appyhapps.healthsync',
+      origins: ['nl.appyhapps.healthsync', 'com.hihonor.health'],
+      ms: 98,
+    })).toBe('Probe: 80 records, 7000 steps from Health Sync (98 ms)')
   })
 
   it('starts the pull on a steps read, not a permission check', () => {

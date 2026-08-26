@@ -10,7 +10,6 @@ import android.provider.Settings
 import androidx.activity.result.ActivityResult
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
-import androidx.health.connect.client.aggregate.AggregateMetric
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
 import androidx.health.connect.client.records.ExerciseSessionRecord
@@ -73,6 +72,16 @@ class HealthPlugin : Plugin() {
     // A page bigger than this is refused by the platform. Heart rate over a full
     // day comfortably exceeds one page, so every read below follows pageToken.
     private val pageSize = 1000
+
+    // Health Sync is the watch→Health Connect bridge the setup screen asks for.
+    // Honor Health and the phone also write; summing every origin double-counts
+    // the same walk. Aggregate() would dedupe, but it hangs on these phones.
+    private val watchWriters = listOf(
+        "nl.appyhapps.healthsync",
+        "com.hihonor.health",
+        "com.huawei.health",
+    )
+    private val phoneWriters = setOf("com.android.healthconnect.phone", "android")
 
     // Honor/Huawei: getOrCreate can hang even when getSdkStatus says AVAILABLE,
     // because Health Sync's store is present but the Google client bind isn't.
@@ -190,6 +199,24 @@ class HealthPlugin : Plugin() {
         } while (token != null)
         return out
     }
+
+    private fun preferredPackages(available: Collection<String>, requested: Set<DataOrigin>): Set<String>? {
+        if (requested.isNotEmpty()) return requested.map { it.packageName }.toSet()
+        for (p in watchWriters) if (p in available) return setOf(p)
+        val rest = available.filter { it !in phoneWriters }
+        if (rest.isNotEmpty()) return setOf(rest.first())
+        return null
+    }
+
+    private fun <T : Record> List<T>.fromPreferred(requested: Set<DataOrigin>): List<T> {
+        val pkgs = map { it.metadata.dataOrigin.packageName }.filter { it.isNotBlank() }.toSet()
+        val pick = preferredPackages(pkgs, requested) ?: return this
+        val filtered = filter { it.metadata.dataOrigin.packageName in pick }
+        return filtered.ifEmpty { this }
+    }
+
+    private fun hcOrigins(requested: Set<DataOrigin>) =
+        if (HealthHuawei.isHuaweiFamily()) emptySet() else requested
 
     private fun run(call: PluginCall, block: suspend () -> JSObject) {
         scope.launch {
@@ -662,7 +689,7 @@ class HealthPlugin : Plugin() {
         val filter = range(call) ?: run { call.reject("bad-range"); return }
         val origins = originsOf(call)
         run(call) {
-            val recs = readAll<HeartRateRecord>(filter, origins)
+            val recs = readAll<HeartRateRecord>(filter, hcOrigins(origins)).fromPreferred(origins)
             val out = JSArray()
             recs.forEach { rec ->
                 rec.samples.forEach { s ->
@@ -683,7 +710,7 @@ class HealthPlugin : Plugin() {
         val origins = originsOf(call)
         run(call) {
             val out = JSArray()
-            readAll<RestingHeartRateRecord>(filter, origins).forEach { rec ->
+            readAll<RestingHeartRateRecord>(filter, hcOrigins(origins)).fromPreferred(origins).forEach { rec ->
                 val o = JSObject()
                 o.put("t", rec.time.toEpochMilli())
                 o.put("bpm", rec.beatsPerMinute)
@@ -708,14 +735,14 @@ class HealthPlugin : Plugin() {
         val origins = originsOf(call)
         run(call) {
             val spo2 = JSArray()
-            readAll<OxygenSaturationRecord>(filter, origins).forEach { rec ->
+            readAll<OxygenSaturationRecord>(filter, hcOrigins(origins)).fromPreferred(origins).forEach { rec ->
                 val o = JSObject()
                 o.put("t", rec.time.toEpochMilli())
                 o.put("pct", rec.percentage.value)
                 spo2.put(o)
             }
             val hrv = JSArray()
-            readAll<HeartRateVariabilityRmssdRecord>(filter, origins).forEach { rec ->
+            readAll<HeartRateVariabilityRmssdRecord>(filter, hcOrigins(origins)).fromPreferred(origins).forEach { rec ->
                 val o = JSObject()
                 o.put("t", rec.time.toEpochMilli())
                 o.put("ms", rec.heartRateVariabilityMillis)
@@ -732,7 +759,7 @@ class HealthPlugin : Plugin() {
         val origins = originsOf(call)
         run(call) {
             val out = JSArray()
-            readAll<SleepSessionRecord>(filter, origins).forEach { rec ->
+            readAll<SleepSessionRecord>(filter, hcOrigins(origins)).fromPreferred(origins).forEach { rec ->
                 val o = JSObject()
                 o.put("start", rec.startTime.toEpochMilli())
                 o.put("end", rec.endTime.toEpochMilli())
@@ -758,7 +785,7 @@ class HealthPlugin : Plugin() {
         run(call) {
             val c = clientOrNull()
             val out = JSArray()
-            readAll<ExerciseSessionRecord>(filter, origins).forEach { rec ->
+            readAll<ExerciseSessionRecord>(filter, hcOrigins(origins)).fromPreferred(origins).forEach { rec ->
                 val o = JSObject()
                 o.put("start", rec.startTime.toEpochMilli())
                 o.put("end", rec.endTime.toEpochMilli())
@@ -787,63 +814,60 @@ class HealthPlugin : Plugin() {
     fun aggregate(call: PluginCall) {
         if (huaweiRead(call) { HealthHuawei.aggregate(context, call) }) return
         val filter = range(call) ?: run { call.reject("bad-range"); return }
-        val origins = originsOf(call)
+        val requested = originsOf(call)
         val wanted = call.getArray("metrics")?.let { arr ->
             (0 until arr.length()).mapNotNull { runCatching { arr.getString(it) }.getOrNull() }
         } ?: listOf("steps", "activeCalories", "totalCalories")
 
-        run(call) {
-            val c = clientOrNull() ?: throw RuntimeException("no-bind")
-            val ret = JSObject()
-
-            // Honor/Huawei: aggregate() is a second binder call that often never
-            // returns even when readRecords for the same type does. Skip it there
-            // and sum the records. Elsewhere try aggregate with its own deadline
-            // so a hang still falls through to the same sum.
-            val fromAgg = if (!HealthHuawei.isHuaweiFamily()) {
-                val metrics = mutableSetOf<AggregateMetric<*>>()
-                if (wanted.contains("steps")) metrics.add(StepsRecord.COUNT_TOTAL)
-                if (wanted.contains("activeCalories")) metrics.add(ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL)
-                if (wanted.contains("totalCalories")) metrics.add(TotalCaloriesBurnedRecord.ENERGY_TOTAL)
-                if (metrics.isEmpty()) return@run ret
-                val res = runTimed(4_000) {
-                    runBlocking {
-                        c.aggregate(
-                            AggregateRequest(metrics = metrics, timeRangeFilter = filter, dataOriginFilter = origins)
-                        )
+        // Each metric has its own deadline. Bundling steps+calories in one
+        // 10s Future.get is what froze Pull at 15%: steps had already returned
+        // (the probe) and calories held the binder until the whole call died,
+        // discarding the steps. Honor never uses HC aggregate() — it hangs.
+        scope.launch {
+            try {
+                if (clientOrNull() == null) {
+                    call.reject("no-bind")
+                    return@launch
+                }
+                val honor = HealthHuawei.isHuaweiFamily()
+                val ret = JSObject()
+                for (metric in wanted) {
+                    val v = runTimed(3_500) {
+                        runBlocking { readMetric(metric, filter, requested, honor) }
+                    } ?: continue
+                    when (metric) {
+                        "steps" -> ret.put("steps", v)
+                        "activeCalories" -> ret.put("activeCalories", v)
+                        "totalCalories" -> ret.put("totalCalories", v)
                     }
                 }
-                if (res == null) false
-                else {
-                    if (metrics.contains(StepsRecord.COUNT_TOTAL)) {
-                        res[StepsRecord.COUNT_TOTAL]?.let { ret.put("steps", it) }
-                    }
-                    if (metrics.contains(ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL)) {
-                        res[ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL]?.let {
-                            ret.put("activeCalories", it.inKilocalories)
-                        }
-                    }
-                    if (metrics.contains(TotalCaloriesBurnedRecord.ENERGY_TOTAL)) {
-                        res[TotalCaloriesBurnedRecord.ENERGY_TOTAL]?.let {
-                            ret.put("totalCalories", it.inKilocalories)
-                        }
-                    }
-                    true
-                }
-            } else false
-
-            if (!fromAgg) {
-                if (wanted.contains("steps")) {
-                    ret.put("steps", readAll<StepsRecord>(filter, origins).sumOf { it.count })
-                }
-                if (wanted.contains("activeCalories")) {
-                    ret.put("activeCalories", readAll<ActiveCaloriesBurnedRecord>(filter, origins).sumOf { it.energy.inKilocalories })
-                }
-                if (wanted.contains("totalCalories")) {
-                    ret.put("totalCalories", readAll<TotalCaloriesBurnedRecord>(filter, origins).sumOf { it.energy.inKilocalories })
-                }
+                call.resolve(ret)
+            } catch (e: SecurityException) {
+                call.reject("not-authorized")
+            } catch (e: Throwable) {
+                val msg = e.message ?: "health-error"
+                call.reject(if (msg.contains("timeout")) "timeout" else msg)
             }
-            ret
+        }
+    }
+
+    private suspend fun readMetric(
+        metric: String,
+        filter: TimeRangeFilter,
+        requested: Set<DataOrigin>,
+        honor: Boolean,
+    ): Double {
+        // Honor: always read every origin then pick in memory. Passing a
+        // dataOriginFilter on that binder is another hang. Docs say
+        // aggregate() dedupes; we do the same by preferring Health Sync.
+        val req = if (honor) emptySet() else requested
+        return when (metric) {
+            "steps" -> readAll<StepsRecord>(filter, req).fromPreferred(requested).sumOf { it.count }.toDouble()
+            "activeCalories" -> readAll<ActiveCaloriesBurnedRecord>(filter, req)
+                .fromPreferred(requested).sumOf { it.energy.inKilocalories }
+            "totalCalories" -> readAll<TotalCaloriesBurnedRecord>(filter, req)
+                .fromPreferred(requested).sumOf { it.energy.inKilocalories }
+            else -> 0.0
         }
     }
 
@@ -863,14 +887,20 @@ class HealthPlugin : Plugin() {
         val t0 = System.currentTimeMillis()
         run(call) {
             val recs = readAll<StepsRecord>(filter, emptySet())
+            val preferred = recs.fromPreferred(emptySet())
             val origins = JSArray()
             recs.map { it.metadata.dataOrigin.packageName }.filter { it.isNotBlank() }.distinct()
                 .forEach { origins.put(it) }
+            val picked = preferredPackages(
+                recs.map { it.metadata.dataOrigin.packageName }.filter { it.isNotBlank() }.toSet(),
+                emptySet(),
+            )?.firstOrNull()
             JSObject()
-                .put("records", recs.size)
-                .put("steps", recs.sumOf { it.count })
+                .put("records", preferred.size)
+                .put("steps", preferred.sumOf { it.count })
                 .put("ms", System.currentTimeMillis() - t0)
                 .put("origins", origins)
+                .put("origin", picked ?: "")
         }
     }
 

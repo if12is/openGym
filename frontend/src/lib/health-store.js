@@ -24,6 +24,7 @@
 
 import { MOBILE } from './mobile.js'
 import { mapAvailabilityReason } from './health-reasons.js'
+import { pickWatchOrigin, originLabel } from './health-origins.js'
 
 const KEY = 'gym_health_v1'
 const FILE = 'opengym-health.json'
@@ -432,7 +433,7 @@ export async function openHealthConnectPermissions() {
 // the update card and the connection check spinning with nothing to show.
 export const loadHealthSync = () => withTimeout(import('./health-sync.js'), 10000, 'chunk-timeout')
 
-export async function pullWatchData(days = 7, onProgress) {
+export async function pullWatchData(days, onProgress) {
   const note = (frac, info) => { try { onProgress?.(frac, info) } catch (e) { /* UI */ } }
   pullBusy = true
   // Drop a queued checkAuthorization so days-sync after the probe does not
@@ -475,20 +476,28 @@ export async function pullWatchData(days = 7, onProgress) {
         steps: probe?.steps,
         ms: probe?.ms,
         origins: origins.filter(Boolean),
+        origin: probe?.origin || pickWatchOrigin(origins),
       })
       const iso = todayIso()
+      const picked = probe?.origin || pickWatchOrigin(origins)
       updateHealth(h => {
         h.conn.state = 'ok'
         h.conn.grantedAt = h.conn.grantedAt || Date.now()
         h.conn.provider = h.conn.provider || 'health-connect'
         if (!h.conn.deviceLabel) h.conn.deviceLabel = 'Huawei Watch Fit 4'
         h.conn.lastSyncAt = Date.now()
+        if (origins.length) {
+          h.conn.origins = origins.filter(Boolean).map(pkg => ({
+            pkg,
+            label: originLabel(pkg),
+          }))
+        }
         if (probe?.steps != null || (probe?.records || 0) > 0) {
           h.days[iso] = {
             ...(h.days[iso] || {}),
             steps: probe.steps ?? h.days[iso]?.steps,
             syncedAt: Date.now(),
-            src: (origins.filter(Boolean)[0] || h.days[iso]?.src || null),
+            src: picked || origins.filter(Boolean)[0] || h.days[iso]?.src || null,
           }
         }
       })
@@ -509,9 +518,25 @@ export async function pullWatchData(days = 7, onProgress) {
 
   try {
     const m = await loadHealthSync()
+    m.resetPullSkips?.()
+    // Without READ_HEALTH_DATA_HISTORY, Health Connect errors on reads older
+    // than ~30 days. With it, walk a year and stop where the data runs out.
+    const walk = days ?? (getConn().history ? 365 : 30)
+    if (!getConn().history && typeof p.aggregate === 'function') {
+      try {
+        const old = Date.now() - 40 * 86400000
+        const hist = await withTimeout(
+          p.aggregate({ start: old, end: old + 86400000, metrics: ['steps'] }),
+          4000, 'timeout',
+        )
+        if (hist && (hist.steps || 0) > 0) {
+          updateConn(c => { c.history = true })
+        }
+      } catch (e) { /* still capped at 30 days */ }
+    }
     const n = await withTimeout(
-      m.syncRecentDays(days, (frac, info) => note(0.15 + frac * 0.85, info)),
-      180000, 'timeout',
+      m.syncRecentDays(getConn().history ? Math.max(walk, 365) : walk, (frac, info) => note(0.15 + frac * 0.85, info)),
+      300000, 'timeout',
     )
     try { m.recomputeBaselines() } catch (e) { /* today's row still stands */ }
     if (n > 0) return { ok: true, days: n }
