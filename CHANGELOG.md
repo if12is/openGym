@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.5.6 — 2026-08-26
+
+Pull got past today's steps and froze at **16% / Reading calories for today**.
+The 12s JS timeout and the 3.5s native deadline cannot abort Honor's binder:
+`ActiveCaloriesBurnedRecord` never returns, so the log stuck on calories and
+the rest of the 30 days never started.
+
+- Honor / Health Sync skip calorie and recovery reads entirely. Sleep, resting
+  pulse and the rest of the days still run. The log says so instead of hanging.
+- Native `aggregate` does not call calorie `readRecords` on Honor at all.
+- A leftover hex origin id is no longer shown as **Read from**. Health Sync is
+  preferred automatically so Honor Health and the phone are not double-counted.
+- A finished read older than 30 days means **Access past data** is on even when
+  that day had zero steps. Pull then walks a year and stops where the store
+  runs out. Without that extra permission the platform still caps at ~30 days
+  (Health Connect → App access → Additional access).
+
 ## v1.5.5 — 2026-08-26
 
 Pull got past permissions and froze at **15% / Reading steps for today**. The

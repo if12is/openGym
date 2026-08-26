@@ -16,6 +16,7 @@
 //     source, so the phone and the watch can't both be counted for the same steps
 
 import { healthPlugin, getConn, enqueueHealth } from './health-store.js'
+import { looksLikePackage } from './health-origins.js'
 
 // Watch data often lands a few minutes after the watch syncs, so a query that
 // returns nothing is usually "not yet", not "never". Callers distinguish the two
@@ -55,7 +56,7 @@ async function call(method, args = {}) {
 // nothing would make that sync silently empty.
 const originFilter = () => {
   const t = getConn().trusted
-  return t ? { origins: [t] } : {}
+  return looksLikePackage(t) ? { origins: [t] } : {}
 }
 
 /* ============================ reads ============================ */

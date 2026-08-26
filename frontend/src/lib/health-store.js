@@ -24,7 +24,7 @@
 
 import { MOBILE } from './mobile.js'
 import { mapAvailabilityReason } from './health-reasons.js'
-import { pickWatchOrigin, originLabel } from './health-origins.js'
+import { pickWatchOrigin, originLabel, looksLikePackage, looksLikeHonorBridge, cleanOrigins } from './health-origins.js'
 
 const KEY = 'gym_health_v1'
 const FILE = 'opengym-health.json'
@@ -49,6 +49,7 @@ export const DEF_HEALTH = {
     grantedAt: null,
     lastSyncAt: null,
     history: false,      // READ_HEALTH_DATA_HISTORY — gates anything older than 30 days
+    honor: false,        // Honor/Huawei family — skip calorie/recovery binder reads
     origins: [],         // [{ pkg, label }] — who writes the data we read
     trusted: null,       // pkg the user picked, so the phone and the watch don't
                          // both get counted for the same steps
@@ -469,35 +470,40 @@ export async function pullWatchData(days, onProgress) {
         : (probe?.origins && typeof probe.origins.length === 'number'
           ? Array.from(probe.origins)
           : [])
+      const pkgs = cleanOrigins(origins)
+      const picked = (looksLikePackage(probe?.origin) ? probe.origin : null)
+        || pickWatchOrigin(pkgs)
       note(0.15, {
         step: 'probe',
         state: 'ok',
         records: probe?.records,
         steps: probe?.steps,
         ms: probe?.ms,
-        origins: origins.filter(Boolean),
-        origin: probe?.origin || pickWatchOrigin(origins),
+        origins: pkgs,
+        origin: picked,
+        honor: !!(probe?.honor) || looksLikeHonorBridge(pkgs),
       })
       const iso = todayIso()
-      const picked = probe?.origin || pickWatchOrigin(origins)
       updateHealth(h => {
         h.conn.state = 'ok'
         h.conn.grantedAt = h.conn.grantedAt || Date.now()
         h.conn.provider = h.conn.provider || 'health-connect'
+        h.conn.honor = !!(probe?.honor) || looksLikeHonorBridge(pkgs) || h.conn.honor
         if (!h.conn.deviceLabel) h.conn.deviceLabel = 'Huawei Watch Fit 4'
         h.conn.lastSyncAt = Date.now()
-        if (origins.length) {
-          h.conn.origins = origins.filter(Boolean).map(pkg => ({
-            pkg,
-            label: originLabel(pkg),
-          }))
+        if (pkgs.length) {
+          h.conn.origins = pkgs.map(pkg => ({ pkg, label: originLabel(pkg) }))
         }
+        // A leftover hex id from an older pull is not a source. Prefer Health
+        // Sync so Honor Health and the phone are not added to the same walk.
+        if (h.conn.trusted && !looksLikePackage(h.conn.trusted)) h.conn.trusted = null
+        if (!h.conn.trusted && picked) h.conn.trusted = picked
         if (probe?.steps != null || (probe?.records || 0) > 0) {
           h.days[iso] = {
             ...(h.days[iso] || {}),
             steps: probe.steps ?? h.days[iso]?.steps,
             syncedAt: Date.now(),
-            src: picked || origins.filter(Boolean)[0] || h.days[iso]?.src || null,
+            src: picked || pkgs[0] || h.days[iso]?.src || null,
           }
         }
       })
@@ -529,10 +535,18 @@ export async function pullWatchData(days, onProgress) {
           p.aggregate({ start: old, end: old + 86400000, metrics: ['steps'] }),
           4000, 'timeout',
         )
-        if (hist && (hist.steps || 0) > 0) {
+        // Without READ_HEALTH_DATA_HISTORY the platform throws, it does not
+        // return zero. A finished read — even 0 steps that day — means the
+        // extra access is on, so walk a year instead of stopping at 30.
+        if (hist) {
           updateConn(c => { c.history = true })
+          note(0.16, { step: 'history', state: 'ok' })
         }
-      } catch (e) { /* still capped at 30 days */ }
+      } catch (e) {
+        note(0.16, { step: 'history', state: 'capped' })
+      }
+    } else if (getConn().history) {
+      note(0.16, { step: 'history', state: 'ok' })
     }
     const n = await withTimeout(
       m.syncRecentDays(getConn().history ? Math.max(walk, 365) : walk, (frac, info) => note(0.15 + frac * 0.85, info)),

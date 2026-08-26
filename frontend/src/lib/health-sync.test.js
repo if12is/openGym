@@ -39,11 +39,15 @@ beforeEach(() => {
   order.length = 0
   hold.agg = null
   mode = 'ok'
-  resetPullSkips()
   updateHealth(h => {
     h.days = {}
     h.conn.state = 'ok'
+    h.conn.origins = []
+    h.conn.honor = false
+    h.conn.trusted = null
+    h.conn.history = false
   })
+  resetPullSkips()
 })
 
 describe('syncDay', () => {
@@ -65,6 +69,28 @@ describe('syncDay', () => {
     await syncDay(iso)
     // Calories still run once; steps are not asked again.
     expect(order.filter(x => x === 'agg')).toHaveLength(1)
+  })
+
+  it('skips calories and recovery when Health Sync is the writer', async () => {
+    const iso = isoOf(new Date())
+    updateHealth(h => {
+      h.conn.origins = [{ pkg: 'nl.appyhapps.healthsync', label: 'Health Sync' }]
+      h.days[iso] = { steps: 5595 }
+    })
+    resetPullSkips()
+    const seen = []
+    await syncDay(iso, info => seen.push(info))
+    expect(order.filter(x => x === 'agg')).toHaveLength(0)
+    expect(order).toEqual(['sleep', 'rhr'])
+    expect(seen.some(s => s.kind === 'kcal' && s.state === 'start')).toBe(false)
+  })
+
+  it('skips calories on Honor even when today has no probe steps', async () => {
+    updateHealth(h => { h.conn.honor = true })
+    resetPullSkips()
+    await syncDay(isoOf(new Date()))
+    expect(order.filter(x => x === 'agg')).toHaveLength(1)
+    expect(order.filter(x => x === 'rec')).toHaveLength(0)
   })
 })
 
@@ -91,6 +117,17 @@ describe('syncRecentDays', () => {
     expect(seen.some(s => s?.step === 'stopped')).toBe(true)
     expect(order.filter(x => x === 'agg')).toHaveLength(2)
     expect(order.filter(x => x === 'sleep')).toHaveLength(1)
+  })
+
+  it('announces skipped calories before walking days on Health Sync', async () => {
+    updateHealth(h => {
+      h.conn.origins = [{ pkg: 'nl.appyhapps.healthsync', label: 'Health Sync' }]
+    })
+    const seen = []
+    await syncRecentDays(1, (_frac, info) => seen.push(info))
+    expect(seen.some(s => s?.step === 'skip-kcal')).toBe(true)
+    expect(order.filter(x => x === 'agg')).toHaveLength(1)
+    expect(order.filter(x => x === 'rec')).toHaveLength(0)
   })
 })
 
@@ -120,6 +157,16 @@ describe('logLine', () => {
   it('starts the pull on a steps read, not a permission check', () => {
     expect(logLine({ step: 'probe', state: 'start' })).toBe('Testing a one-day steps read…')
     expect(logLine({ step: 'probe', state: 'start' })).not.toBe('Checking permissions…')
+  })
+
+  it('says calories are skipped on Honor', () => {
+    expect(logLine({ step: 'skip-kcal' })).toMatch(/Skipping calories/)
+    expect(logLine({ step: 'skip-recovery' })).toMatch(/Skipping recovery/)
+  })
+
+  it('names history access vs the 30-day cap', () => {
+    expect(logLine({ step: 'history', state: 'ok' })).toMatch(/year/)
+    expect(logLine({ step: 'history', state: 'capped' })).toMatch(/30 days/)
   })
 })
 
