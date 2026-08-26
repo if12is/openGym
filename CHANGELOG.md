@@ -11,6 +11,8 @@ Honor never returns, and Pull waited on it before reading a single step.
 - Settings does not start `checkAuthorization` on mount, and resume does not
   start it either unless the watch is already linked.
 - Probe is called directly, not queued behind a hung auth call.
+- Home shows the watch card as soon as today's steps land — it does not wait
+  for sleep and resting pulse before the section appears.
 
 ## v1.5.3 — 2026-08-26
 

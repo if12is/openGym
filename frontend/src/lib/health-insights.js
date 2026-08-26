@@ -12,6 +12,16 @@ import { localDayRange, sessionSamples, peakNearSets, hrReserve } from './health
 import { isoOf, weekKey } from './format.js'
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
+
+// Any of these is enough to put today's watch card on Home. Readiness still
+// needs sleep or pulse to score — but a successful steps pull must not leave
+// the home screen empty.
+export function hasTodayReading(day) {
+  if (!day) return false
+  return day.sleepMin != null || day.rhr != null
+    || day.steps != null || day.kcalActive != null || day.kcalTotal != null
+}
+
 const mean = a => (a.length ? a.reduce((n, v) => n + v, 0) / a.length : null)
 
 // Walk back N calendar days from `iso`, newest first. Used everywhere a baseline

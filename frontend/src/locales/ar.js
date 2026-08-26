@@ -764,6 +764,7 @@ export default {
 
   // --- session detail ---
   'From your watch': 'من ساعتك',
+  'Sleep and resting pulse fill in as they arrive.': 'النوم ونبض الراحة هيتملوا أول ما يوصلوا.',
   'Checking your watch…': 'بنشوف ساعتك…',
   'Waiting on your watch — this fills in once Health Sync catches up.': 'مستنيين ساعتك — ده هيتملي أول ما Health Sync يلحق.',
   'Waiting on your watch — this fills in once Huawei Health catches up.': 'مستنيين ساعتك — ده هيتملي أول ما Huawei Health يلحق.',

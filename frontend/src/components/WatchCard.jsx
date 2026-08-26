@@ -10,10 +10,11 @@ import { useUI } from '../store/useUI.js'
 import { t } from '../lib/i18n.js'
 import { fmtDate, isoOf } from '../lib/format.js'
 import {
-  getConn, subscribeHealth, refreshLinkState, disconnectWatch,
+  refreshLinkState, disconnectWatch,
   openHealthConnectPermissions, installHealthConnect, connectWatch,
-  updateConn, getHealth, diagnoseHealth, checkAvailability, pullWatchData, loadHealthSync,
+  updateConn, diagnoseHealth, checkAvailability, pullWatchData, loadHealthSync,
 } from '../lib/health-store.js'
+import { useHealth } from './HealthCards.jsx'
 import { bridgeReport } from '../lib/bridge-report.js'
 import { listOrigins } from '../lib/health-connect.js'
 import { logLine } from '../lib/health-pull-log.js'
@@ -408,18 +409,14 @@ async function rememberOrigins() {
 }
 
 export default function WatchCard({ toast }) {
-  const [conn, setConn] = useState(getConn())
+  const health = useHealth()
+  const conn = health.conn
   const [syncing, setSyncing] = useState(false)
   const [fill, setFill] = useState(null)
   const [pulling, setPulling] = useState(false)
   const [pullPct, setPullPct] = useState(0)
   const [pullLog, setPullLog] = useState([])
   const huawei = conn.provider === 'huawei'
-
-  useEffect(() => {
-    const off = subscribeHealth(() => setConn({ ...getConn() }))
-    return off
-  }, [])
 
   const open = () => useUI.getState().openSheet(close => <SetupSheet close={close} toast={toast} />)
 
@@ -564,7 +561,7 @@ export default function WatchCard({ toast }) {
   }
 
   const lastSync = conn.lastSyncAt ? fmtDate(isoOf(new Date(conn.lastSyncAt)), true) : null
-  const today = getHealth().days[isoOf(new Date())] || {}
+  const today = health.days[isoOf(new Date())] || {}
   const trusted = (conn.origins || []).find(o => o.pkg === conn.trusted)
 
   return (

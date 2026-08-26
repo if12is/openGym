@@ -15,7 +15,7 @@ import { useUI } from '../store/useUI.js'
 import Icon from './Icon.jsx'
 import SessionChart, { ZoneBar, ZONE_COLORS, ZONE_NAMES } from './SessionChart.jsx'
 import { getHealth, subscribeHealth, getConn } from '../lib/health-store.js'
-import { readiness, overloadFlag, trainingLoad, sleepVsVolume, suggestRest, prContext, muscleRecovery, recoveryLevels, exerciseCost, energyBalance, sleepStreakWeeks, periodReview, seasonality } from '../lib/health-insights.js'
+import { readiness, overloadFlag, trainingLoad, sleepVsVolume, suggestRest, prContext, muscleRecovery, recoveryLevels, exerciseCost, energyBalance, sleepStreakWeeks, periodReview, seasonality, hasTodayReading } from '../lib/health-insights.js'
 import { loadOfWorkouts, MUSCLE_NAME } from '../lib/muscles.js'
 import { EXIDX } from '../lib/exercises.js'
 import { useStore } from '../store/useStore.js'
@@ -64,8 +64,48 @@ function Ring({ score, color }) {
 
 // `read` is the output of health-insights.readiness. Rendering is deliberately
 // split from the maths so the thresholds live somewhere a test can reach them.
+function TodayParts({ day, base }) {
+  return (
+    <div className="rdy-parts">
+      {day?.sleepMin != null && (
+        <span className="rdy-part"><Icon name="sleep" />{t('Slept')} <b>{hhmm(day.sleepMin)}</b>
+          {base?.sleep14 ? <span>{' · '}{t('avg {0}', hhmm(base.sleep14))}</span> : null}
+        </span>
+      )}
+      {day?.rhr != null && (
+        <span className="rdy-part"><Icon name="heart" />{t('Resting')} <b>{day.rhr}</b>
+          {base?.rhr7 ? <span>{' · '}{day.rhr > base.rhr7 ? '+' : ''}{day.rhr - base.rhr7}</span> : null}
+        </span>
+      )}
+      {day?.steps != null && (
+        <span className="rdy-part"><Icon name="footsteps" /><b>{Math.round(day.steps).toLocaleString()}</b> {t('steps')}</span>
+      )}
+      {day?.kcalActive != null && (
+        <span className="rdy-part"><Icon name="flame" /><b>{Math.round(day.kcalActive)}</b> {t('kcal')}</span>
+      )}
+    </div>
+  )
+}
+
 export function ReadinessCard({ read, day, base, overload, isRestDay, onWhy }) {
-  if (!read) return null
+  if (!read && !hasTodayReading(day)) return null
+
+  // Steps (or calories) can land from the first probe, before sleep and
+  // resting pulse. Show them immediately rather than leaving Home blank
+  // until a score can be built.
+  if (!read) {
+    return <div className="card">
+      <div className="rdy">
+        <div className="rdy-m">
+          <span className="dim small" style={{ letterSpacing: '.04em', textTransform: 'uppercase' }}>{t('Today')}</span>
+          <span className="rdy-t">{t('From your watch')}</span>
+          <span className="rdy-s">{t('Sleep and resting pulse fill in as they arrive.')}</span>
+        </div>
+      </div>
+      <TodayParts day={day} base={base} />
+    </div>
+  }
+
   const band = BAND[read.band] || BAND.normal
 
   // Below half the inputs, the score is one reading wearing a suit. Say so
@@ -87,21 +127,7 @@ export function ReadinessCard({ read, day, base, overload, isRestDay, onWhy }) {
       </div>
     </div>
 
-    <div className="rdy-parts">
-      {day?.sleepMin != null && (
-        <span className="rdy-part"><Icon name="sleep" />{t('Slept')} <b>{hhmm(day.sleepMin)}</b>
-          {base?.sleep14 ? <span>{' · '}{t('avg {0}', hhmm(base.sleep14))}</span> : null}
-        </span>
-      )}
-      {day?.rhr != null && (
-        <span className="rdy-part"><Icon name="heart" />{t('Resting')} <b>{day.rhr}</b>
-          {base?.rhr7 ? <span>{' · '}{day.rhr > base.rhr7 ? '+' : ''}{day.rhr - base.rhr7}</span> : null}
-        </span>
-      )}
-      {day?.steps != null && (
-        <span className="rdy-part"><Icon name="footsteps" /><b>{Math.round(day.steps).toLocaleString()}</b> {t('steps')}</span>
-      )}
-    </div>
+    <TodayParts day={day} base={base} />
 
     {overload && <div className="wnote" style={{ marginTop: 12 }}>
       <Icon name="info" />
@@ -288,25 +314,25 @@ export function todayReadiness(S) {
 /* ============================ home briefing ============================ */
 
 // The one card that answers "what should I do today" before the plan does.
-// Renders nothing at all unless a watch is linked AND today has a reading —
-// an empty health card on the home screen is worse than no card.
+// Renders as soon as a watch is linked AND today has any reading. Steps from
+// the first probe are enough — waiting for sleep/RHR left Home empty after a
+// successful pull. The score appears once those inputs land.
 export function DayBriefing({ S }) {
   const health = useHealth()
   if (!MOBILE || !isLinked()) return null
 
   const iso = todayISO()
   const day = health.days[iso]
-  if (!day || (day.sleepMin == null && day.rhr == null)) return null
+  if (!hasTodayReading(day)) return null
 
   const load = trainingLoad(health.sessions, S.workouts || [], iso)
   const read = readiness(day, health.base, load)
-  if (!read) return null
 
   const recent = (S.workouts || []).slice(-2).map(w => health.sessions[w.id]).filter(Boolean)
   const over = overloadFlag(day, health.base, load, recent)
   const isRestDay = !effectiveRoutineId(S, iso)
 
-  const why = () => useUI.getState().openSheet(close => <>
+  const why = read ? () => useUI.getState().openSheet(close => <>
     <h3>{t('What counted?')}</h3>
     <p className="muted small" style={{ marginBottom: 12, lineHeight: 1.5 }}>
       {t('Each part is scored against your own recent average, not against a general target.')}
@@ -326,7 +352,7 @@ export function DayBriefing({ S }) {
       {t('Some inputs are missing today, so the score leans on the rest.')}
     </p>}
     <div style={{ height: 8 }} />
-  </>)
+  </>) : undefined
 
   return <ReadinessCard read={read} day={day} base={health.base} overload={over}
     isRestDay={isRestDay} onWhy={why} />

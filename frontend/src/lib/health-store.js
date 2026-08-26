@@ -482,6 +482,7 @@ export async function pullWatchData(days = 7, onProgress) {
         h.conn.grantedAt = h.conn.grantedAt || Date.now()
         h.conn.provider = h.conn.provider || 'health-connect'
         if (!h.conn.deviceLabel) h.conn.deviceLabel = 'Huawei Watch Fit 4'
+        h.conn.lastSyncAt = Date.now()
         if (probe?.steps != null || (probe?.records || 0) > 0) {
           h.days[iso] = {
             ...(h.days[iso] || {}),
@@ -512,6 +513,7 @@ export async function pullWatchData(days = 7, onProgress) {
       m.syncRecentDays(days, (frac, info) => note(0.15 + frac * 0.85, info)),
       180000, 'timeout',
     )
+    try { m.recomputeBaselines() } catch (e) { /* today's row still stands */ }
     if (n > 0) return { ok: true, days: n }
     if (probe && (probe.steps != null || (probe.records || 0) > 0)) return { ok: true, days: 1 }
     if (probe && probe.reason === 'timeout') return { ok: false, reason: 'timeout' }

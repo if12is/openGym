@@ -3,6 +3,7 @@ import {
   lastDays, estimateHrMax, computeBaselines, trainingLoad,
   readiness, overloadFlag, suggestRest, pearson, sleepVsVolume, prContext,
   muscleRecovery, recoveryLevels, RECOVERY_MAX_H, energyBalance, sleepStreakWeeks, periodReview, seasonality,
+  hasTodayReading,
 } from './health-insights.js'
 import { isoOf } from './format.js'
 
@@ -20,6 +21,19 @@ const steadyDays = (over = {}) => {
   }
   return { ...days, ...over }
 }
+
+describe('hasTodayReading', () => {
+  it('is false with nothing stored', () => {
+    expect(hasTodayReading(null)).toBe(false)
+    expect(hasTodayReading({})).toBe(false)
+  })
+
+  it('treats steps alone as enough to show the home card', () => {
+    expect(hasTodayReading({ steps: 7496 })).toBe(true)
+    expect(hasTodayReading({ kcalActive: 320 })).toBe(true)
+    expect(hasTodayReading({ sleepMin: 420 })).toBe(true)
+  })
+})
 
 describe('lastDays', () => {
   it('walks back from the given day, excluding it', () => {
