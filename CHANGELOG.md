@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.5.3 — 2026-08-26
+
+The connection check on Honor read 7,496 steps in 65ms while **Pull watch data**
+stayed on 0% and wrote nothing. The tap was waiting on `checkAuthorization` —
+the same binder call Settings already fires on mount — instead of reading.
+
+- Pull goes straight to the steps probe (the call that already works) and writes
+  today’s steps the moment it returns, before walking the rest of the days.
+- Health Connect calls share one queue, so the mount check, the resume sync and
+  the pull button cannot occupy the binder at the same time.
+- The log under the button appears on tap, not after the first native reply.
+
 ## v1.5.2 — 2026-08-26
 
 Honor with every Health Connect type granted still sat on **0%** and pulled nothing.
